@@ -6,9 +6,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 # Путь к config.yaml относительно этого файла (backend/config.yaml)
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
+
+# .env лежит в корне репозитория (на уровень выше backend/).
+# Сервис также получает его через EnvironmentFile в systemd — здесь для CLI.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 @dataclass

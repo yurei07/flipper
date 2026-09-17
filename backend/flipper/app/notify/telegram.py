@@ -17,6 +17,9 @@ from flipper.config import DealConfig, load_config
 
 log = logging.getLogger(__name__)
 
+# Bot API кладёт токен в URL — не даём httpx логировать его на INFO.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 _API = "https://api.telegram.org/bot{token}/sendMessage"
 
 
