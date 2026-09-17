@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from flipper.app.db import get_session
 from flipper.app.models import Listing, PriceSample
-from flipper.app.scraper.client import ScraperClient
+from flipper.app.scraper.client import ScraperClient, ScraperBlocked
 from flipper.config import DealConfig
 
 log = logging.getLogger(__name__)
@@ -61,6 +61,8 @@ def fetch_market_samples(
         return []
     try:
         ads = client.search(q=q, pages=1, sort_price="ASCENDING")
+    except ScraperBlocked:
+        raise  # сигнал блока идёт наверх => цикл уходит в cooldown
     except Exception as e:
         log.warning("рыночный поиск %r упал: %s", q, e)
         return []

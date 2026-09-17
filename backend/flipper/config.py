@@ -24,9 +24,12 @@ class SearchConfig:
 
 @dataclass
 class ScraperConfig:
-    poll_interval_min: int = 15
+    poll_interval_min: int = 20
     pages_per_search: int = 2
     detail_delay_sec: list[float] = field(default_factory=lambda: [2.0, 6.0])
+    max_requests_per_cycle: int = 25
+    analyze_per_cycle: int = 5
+    enrich_per_cycle: int = 5
     searches: list[SearchConfig] = field(default_factory=list)
     exclude_keywords: list[str] = field(default_factory=list)
 
@@ -109,9 +112,12 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
 
     return Config(
         scraper=ScraperConfig(
-            poll_interval_min=scr.get("poll_interval_min", 15),
+            poll_interval_min=scr.get("poll_interval_min", 20),
             pages_per_search=scr.get("pages_per_search", 2),
             detail_delay_sec=scr.get("detail_delay_sec", [2.0, 6.0]),
+            max_requests_per_cycle=scr.get("max_requests_per_cycle", 25),
+            analyze_per_cycle=scr.get("analyze_per_cycle", 5),
+            enrich_per_cycle=scr.get("enrich_per_cycle", 5),
             searches=searches,
             exclude_keywords=scr.get("exclude_keywords", []),
         ),

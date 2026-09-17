@@ -1,6 +1,7 @@
 """CLI: python -m flipper run --once | analyze <ad_id> | status.
 
-Phase A самое главное: run --once = новый скан -> анализ -> человекочитаемые вердикты.
+Phase A главное: run --once = скан -> анализ -> человекочитаемые вердикты.
+Все команды уважают single-instance lock и cooldown — не мастурбируют API вручную.
 """
 from __future__ import annotations
 
@@ -8,14 +9,14 @@ import argparse
 import logging
 from sqlalchemy import func, select
 
+from flipper.app.analyzer.ollama import OllamaProvider
 from flipper.app.db import get_session, init_db
 from flipper.app.models import Analysis, Listing, STATUS_ACTIVE
-from flipper.app.pipeline import analyze_pending, run_on_listing
+from flipper.app.scheduler import run_cycle
+from flipper.app.pipeline import run_on_listing
 from flipper.app.scraper.client import ScraperClient
-from flipper.app.scraper.detail import enrich_new
-from flipper.app.scraper.search import scan_one
+from flipper.app.cooldown import clear_cooldown, in_cooldown
 from flipper.config import load_config
-from flipper.app.analyzer.ollama import OllamaProvider
 
 
 def _print_deal(a: Analysis) -> None:
@@ -28,23 +29,28 @@ def _print_deal(a: Analysis) -> None:
     )
 
 
-def cmd_run_once(cfg, provider) -> int:
-    """Один полный цикл: скрейп -> детали -> анализ -> вывод вердиктов."""
-    client = ScraperClient(delay_range=cfg.scraper.detail_delay_sec)
-    new = scan_one(cfg.scraper, client)
-    enriched = enrich_new(client)
-    print(f"скан: {new} новых, {enriched} с деталями")
-
-    analyses = analyze_pending(provider, client, cfg.deal, limit=20)
-    print(f"проанализировано: {len(analyses)}")
-    for a in analyses:
-        _print_deal(a)
-    return len(analyses)
+def cmd_run_once() -> None:
+    """Один полный цикл через run_cycle (с блокировкой и cooldown)."""
+    run_cycle()  # весь пайплайн внутри scheduler.run_cycle
 
 
-def cmd_analyze_one(cfg, provider, ad_id: int) -> None:
-    """Ручной прогон: python -m flipper analyze <ad_id>."""
-    client = ScraperClient(delay_range=(0.1, 0.2))
+def cmd_analyze_one(ad_id: int) -> None:
+    """Ручной прогон анализа без скана (не пишет в API поисками)."""
+    cfg = load_config()
+    provider = OllamaProvider(
+        base_url=cfg.analyzer.ollama_base_url,
+        model=cfg.analyzer.model,
+        temperature=cfg.analyzer.temperature,
+        timeout_sec=cfg.analyzer.timeout_sec,
+        retries=cfg.analyzer.retries,
+    )
+    # Ручной анализ тоже уважает cooldown (не ходим к рынку во время бана)
+    if in_cooldown():
+        print("cooldown активен — анализ пропущен")
+        return
+    client = ScraperClient(
+        delay_range=(0.1, 0.2), max_requests=cfg.scraper.max_requests_per_cycle
+    )
     a = run_on_listing(ad_id, provider, client, cfg.deal)
     if a is None:
         print(f"листинг {ad_id} не найден")
@@ -81,24 +87,23 @@ def main() -> None:
     once.add_argument("--once", action="store_true", help="один проход скана+анализа")
     ana = sub.add_parser("analyze")
     ana.add_argument("ad_id", type=int, help="номер объявления")
+    uncool = sub.add_parser("uncooldown", help="сбросить cooldown вручную")
     args = p.parse_args()
 
     cfg = load_config()
     init_db(cfg.db.url)
-    provider = OllamaProvider(
-        base_url=cfg.analyzer.ollama_base_url,
-        model=cfg.analyzer.model,
-        temperature=cfg.analyzer.temperature,
-        timeout_sec=cfg.analyzer.timeout_sec,
-        retries=cfg.analyzer.retries,
-    )
 
     if args.cmd == "status":
         cmd_status(cfg)
     elif args.cmd == "run":
-        cmd_run_once(cfg, provider)
+        if not args.once:
+            p.error("run требует --once")
+        cmd_run_once()
     elif args.cmd == "analyze":
-        cmd_analyze_one(cfg, provider, args.ad_id)
+        cmd_analyze_one(args.ad_id)
+    elif args.cmd == "uncooldown":
+        clear_cooldown()
+        print("cooldown сброшен")
 
 
 if __name__ == "__main__":

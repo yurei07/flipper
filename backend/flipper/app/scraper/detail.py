@@ -7,16 +7,16 @@ from sqlalchemy import select
 
 from flipper.app.db import get_session
 from flipper.app.models import Listing, STATUS_GONE, _now
-from flipper.app.scraper.client import ScraperClient
+from flipper.app.scraper.client import ScraperClient, ScraperBlocked
 
 log = logging.getLogger(__name__)
 
 
-def enrich_new(client: ScraperClient) -> int:
+def enrich_new(client: ScraperClient, limit: int = 5) -> int:
     """Идём по объявлениям БЕЗ описания (новым) и добираем детальную страницу.
 
     Объявление удалено на сайте -> статус gone (к нему больше не листаем).
-    Возвращает число обогащённых.
+    Возвращает число обогащённых. limit = бюджет из конфига (защита от бана).
     """
 
     with get_session() as s:
@@ -25,7 +25,7 @@ def enrich_new(client: ScraperClient) -> int:
             s.execute(
                 select(Listing)
                 .where(Listing.status == "active", Listing.description == "")
-                .limit(20)
+                .limit(limit)
             )
             .scalars()
             .all()
@@ -33,7 +33,10 @@ def enrich_new(client: ScraperClient) -> int:
 
     enriched = 0
     for listing in rows:
-        ad = client.get_ad(listing.ad_id)
+        try:
+            ad = client.get_ad(listing.ad_id)
+        except ScraperBlocked:
+            raise  # бюджет/блок -> хендлер ставит cooldown
         with get_session() as s:
             obj = s.get(Listing, listing.ad_id)
             if obj is None:

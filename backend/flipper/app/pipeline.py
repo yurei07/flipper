@@ -12,7 +12,7 @@ from flipper.app.db import get_session
 from flipper.app.models import Analysis, Listing
 from flipper.app.pricing.market import market_price_eur, model_key
 from flipper.app.pricing.parts import get_parts_cost
-from flipper.app.scraper.client import ScraperClient
+from flipper.app.scraper.client import ScraperClient, ScraperBlocked
 from flipper.config import DealConfig
 
 log = logging.getLogger(__name__)
@@ -141,11 +141,17 @@ def analyze_pending(
     provider: Provider,
     scraper: ScraperClient,
     deal_cfg: DealConfig,
-    limit: int = 20,
+    limit: int = 5,
 ) -> list[Analysis]:
-    """Прогон анализа по объявлениям без анализа. Возвращает список свежих Analysis."""
+    """Прогон анализа по объявлениям без анализа. Возвращает список свежих Analysis.
+
+    limit — бюджет за цикл (медленный разгон, защита от бана). ScraperBlocked
+    пробрасывается наверх, чтобы цикл ушёл в cooldown.
+    """
     with get_session() as s:
-        analyzed_ids = set(select(Analysis.listing_id))
+        analyzed_ids = set(
+            s.execute(select(Analysis.listing_id)).scalars().all()
+        )
         pending = s.execute(
             select(Listing)
             .where(
@@ -162,6 +168,8 @@ def analyze_pending(
             a = run_on_listing(listing.ad_id, provider, scraper, deal_cfg)
             if a is not None:
                 results.append(a)
+        except ScraperBlocked:
+            raise  # блок/бюджет -> цикл в cooldown, счётчик в следующий раз
         except Exception as e:
             log.warning("ошибка анализа %s: %s", listing.ad_id, e)
     return results
