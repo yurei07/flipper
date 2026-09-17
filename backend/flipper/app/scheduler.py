@@ -23,6 +23,53 @@ log = logging.getLogger(__name__)
 _LOCK_PATH = Path("/tmp/flipper_cycle.lock")
 
 
+def _record(outcome, new_listings, analyses, requests_used, error) -> int | None:
+    """Создаёт запись cycle_runs. Возвращает id (для _finish) или None."""
+    try:
+        from flipper.app.db import get_session
+        from flipper.app.models import CycleRun
+
+        with get_session() as s:
+            r = CycleRun(
+                outcome=outcome,
+                new_listings=new_listings,
+                analyses=analyses,
+                requests_used=requests_used,
+                error=error,
+            )
+            s.add(r)
+            s.commit()
+            s.refresh(r)
+            return r.id
+    except Exception:
+        log.exception("не смог записать cycle_run")  # мониторинг — не критично
+        return None
+
+
+def _finish(run_id, outcome, new_listings, analyses, requests_used, error) -> None:
+    """Заполняет финальную статистику уже созданной записи."""
+    if run_id is None:
+        return
+    try:
+        from datetime import datetime, timezone
+
+        from flipper.app.db import get_session
+        from flipper.app.models import CycleRun
+
+        with get_session() as s:
+            row = s.get(CycleRun, run_id)
+            if row is not None:
+                row.outcome = outcome
+                row.new_listings = new_listings
+                row.analyses = analyses
+                row.requests_used = requests_used
+                row.error = error
+                row.finished_at = datetime.now(timezone.utc)
+                s.commit()
+    except Exception:
+        log.exception("не смог финализировать cycle_run")
+
+
 class CycleLock:
     """Файловый лок: между CLI и таймером не бывает двух одновременных циклов."""
 
@@ -56,6 +103,7 @@ def run_cycle(manual: bool = False) -> None:
 
     if in_cooldown():
         log.info("cooldown активен — цикл пропущен")
+        _record("cooldown", 0, 0, 0, "")
         return
 
     lock = CycleLock()
@@ -63,6 +111,7 @@ def run_cycle(manual: bool = False) -> None:
         log.info("другой цикл уже работает — пропускаем")
         return
 
+    run_id = _record("ok", 0, 0, 0, "")  # стартовая запись, финализируем ниже
     try:
         from flipper.app.analyzer.ollama import OllamaProvider
         from flipper.app.scraper.client import ScraperClient
@@ -95,12 +144,15 @@ def run_cycle(manual: bool = False) -> None:
             client.requests_used,
             cfg.scraper.max_requests_per_cycle,
         )
+        _finish(run_id, "ok", new, len(analyses), client.requests_used, "")
     except ScraperBlocked as e:
         # Дошли до бюджета или капчи -> реально ждём час (правило §2.5)
         log.warning("блок: %s — включаю cooldown", e)
+        _finish(run_id, "blocked", 0, 0, 0, str(e))
         set_cooldown()
-    except Exception:
+    except Exception as e:
         log.exception("цикл упал")
+        _finish(run_id, "error", 0, 0, 0, str(e)[:500])
     finally:
         lock.release()
 

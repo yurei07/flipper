@@ -112,3 +112,20 @@ class Setting(Base):
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value: Mapped[str] = mapped_column(Text, default="")
+
+
+class CycleRun(Base):
+    """Одна запись о проходе цикл приготовления: мониторинг стабильности (Phase B).
+
+    outcome: ok | blocked | error | cooldown
+    """
+    __tablename__ = "cycle_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(20), default="ok")
+    new_listings: Mapped[int] = mapped_column(Integer, default=0)
+    analyses: Mapped[int] = mapped_column(Integer, default=0)
+    requests_used: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
