@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 from flipper.app.analyzer.ollama import OllamaProvider
 from flipper.app.db import get_session, init_db
-from flipper.app.models import Analysis, Listing, STATUS_ACTIVE
+from flipper.app.models import Analysis, CycleRun, Listing, STATUS_ACTIVE
 from flipper.app.scheduler import run_cycle
 from flipper.app.pipeline import run_on_listing
 from flipper.app.scraper.client import ScraperClient
@@ -75,6 +75,25 @@ def cmd_status(cfg) -> None:
     print("вердикты:", ", ".join(f"{k}={v}" for k, v in by_verdict.items()))
 
 
+def cmd_cycles(n: int = 10) -> None:
+    """Последние N циклов сканирования (мониторинг 24ч-прогона)."""
+    with get_session() as s:
+        rows = (
+            s.execute(select(CycleRun).order_by(CycleRun.id.desc()).limit(n))
+            .scalars()
+            .all()
+        )
+    if not rows:
+        print("циклов пока не было")
+        return
+    print(f"{'id':>3} {'итог':<9} {'новых':>5} {'анализ':>7} {'запросов':>8}  старт")
+    for r in reversed(rows):
+        print(
+            f"{r.id:>3} {r.outcome:<9} {r.new_listings:>5} {r.analyses:>7} "
+            f"{r.requests_used:>8}  {r.started_at:%H:%M} {str(r.error)[:40]}"
+        )
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -88,6 +107,8 @@ def main() -> None:
     ana = sub.add_parser("analyze")
     ana.add_argument("ad_id", type=int, help="номер объявления")
     uncool = sub.add_parser("uncooldown", help="сбросить cooldown вручную")
+    cyc = sub.add_parser("cycles")
+    cyc.add_argument("-n", type=int, default=10, help="сколько последних циклов показать")
     args = p.parse_args()
 
     cfg = load_config()
@@ -104,6 +125,8 @@ def main() -> None:
     elif args.cmd == "uncooldown":
         clear_cooldown()
         print("cooldown сброшен")
+    elif args.cmd == "cycles":
+        cmd_cycles(args.n)
 
 
 if __name__ == "__main__":
