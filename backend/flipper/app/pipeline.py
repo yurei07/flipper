@@ -149,12 +149,20 @@ def analyze_pending(
     scraper: ScraperClient,
     deal_cfg: DealConfig,
     limit: int = 5,
+    max_seconds: float | None = None,
 ) -> list[Analysis]:
     """Прогон анализа по объявлениям без анализа. Возвращает список свежих Analysis.
 
     limit — бюджет за цикл (медленный разгон, защита от бана). ScraperBlocked
     пробрасывается наверх, чтобы цикл ушёл в cooldown.
+
+    max_seconds — мягкий дедлайн на весь проход: начатые объявления доводим до
+    конца, новые после дедлайна не стартуем (цикл не вылезет за интервал).
     """
+    import time
+
+    deadline = (time.monotonic() + max_seconds) if max_seconds else None
+
     with get_session() as s:
         analyzed_ids = set(
             s.execute(select(Analysis.listing_id)).scalars().all()
@@ -171,6 +179,13 @@ def analyze_pending(
 
     results = []
     for listing in pending:
+        if deadline is not None and time.monotonic() >= deadline:
+            log.info(
+                "дедлайн цикла: анализ остановлен (обработано %d из %d)",
+                len(results),
+                len(pending),
+            )
+            break
         try:
             a = run_on_listing(listing.ad_id, provider, scraper, deal_cfg)
             if a is not None:

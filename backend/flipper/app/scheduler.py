@@ -133,8 +133,14 @@ def run_cycle(manual: bool = False) -> None:
         new = scan_one(cfg.scraper, client)
         if new:
             enrich_new(client, limit=cfg.scraper.enrich_per_cycle)
+        # Мягкий дедлайн: анализ занимает большую часть цикла, но не вылезает
+        # за интервал (иначе APScheduler пропускает следующие запуски).
         analyses = analyze_pending(
-            provider, client, cfg.deal, limit=cfg.scraper.analyze_per_cycle
+            provider,
+            client,
+            cfg.deal,
+            limit=cfg.scraper.analyze_per_cycle,
+            max_seconds=cfg.scraper.poll_interval_min * 60 * 0.6,
         )
         log.info(
             "цикл готов: новых=%d, проанализировано=%d, запросов=%d/%d",
@@ -166,6 +172,7 @@ def start_scheduler() -> BackgroundScheduler:
         trigger=IntervalTrigger(minutes=interval, jitter=random.randint(1, 5 * 60)),
         id="crawl_cycle",
         max_instances=1,
+        coalesce=True,
         misfire_grace_time=60,
     )
     scheduler.start()
