@@ -58,6 +58,21 @@ def cmd_analyze_one(ad_id: int) -> None:
         _print_deal(a)
 
 
+def cmd_test_notify() -> None:
+    """Проверка Telegram-канала: шлём тестовое сообщение в настроенный чат."""
+    from flipper.app.notify.telegram import _configured, send_message
+
+    if _configured() is None:
+        print(
+            "Telegram не настроен. Задай в .env:\n"
+            "  FLIPPER_TELEGRAM_BOT_TOKEN=<токен от @BotFather>\n"
+            "  FLIPPER_TELEGRAM_CHAT_ID=<твой chat_id>"
+        )
+        return
+    ok = send_message("✅ flipper: тестовое уведомление — связь есть")
+    print("отправлено, проверь чат" if ok else "не удалось отправить (смотри лог)")
+
+
 def cmd_status(cfg) -> None:
     """Короткая статистика по БД."""
     with get_session() as s:
@@ -139,6 +154,7 @@ def main() -> None:
     cyc.add_argument("-n", type=int, default=10, help="сколько последних циклов показать")
     rec = sub.add_parser("recent")
     rec.add_argument("-n", type=int, default=15, help="сколько объявлений показать")
+    sub.add_parser("test-notify", help="проверить Telegram-уведомления")
     args = p.parse_args()
 
     cfg = load_config()
@@ -159,6 +175,8 @@ def main() -> None:
         cmd_cycles(args.n)
     elif args.cmd == "recent":
         cmd_recent(args.n)
+    elif args.cmd == "test-notify":
+        cmd_test_notify()
 
 
 if __name__ == "__main__":

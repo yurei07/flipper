@@ -7,10 +7,10 @@
 from __future__ import annotations
 
 import logging
-from sqlalchemy import select
 
 from flipper.app.db import get_session
-from flipper.app.models import Analysis, DeviceToken, Listing, UserAction
+from flipper.app.models import Analysis, DeviceToken
+from flipper.app.notify.gate import should_notify
 from flipper.config import DealConfig
 
 log = logging.getLogger(__name__)
@@ -57,32 +57,10 @@ def _notification_payload(a: Analysis) -> dict | None:
 def maybe_notify(a: Analysis, deal: DealConfig) -> bool:
     """Решает по §9, стоит ли пучить, и пучит.
 
-    Условия: вердикт в notify_only_verdicts (по умолчанию TAKE), маржа выше
-    профильного порога дела (repair/resale), объявление живо и пользователь
-    его не отмёл (dismissed/ignored).
+    Условия общие (см. gate.should_notify): вердикт, маржа, живость, не отмёл.
     """
-    if a.verdict not in deal.notify_only_verdicts:
+    if not should_notify(a, deal):
         return False
-
-    min_margin = (
-        deal.min_margin_eur_resale if a.flip_type == "resale" else deal.min_margin_eur
-    )
-    if a.margin_eur < min_margin:
-        return False
-
-    with get_session() as s:
-        listing = s.get(Listing, a.listing_id)
-        if listing is None or listing.status != "active":
-            return False
-        dismissed = s.execute(
-            select(UserAction).where(
-                UserAction.listing_id == a.listing_id,
-                UserAction.action.in_(["dismissed", "ignored"]),
-            )
-        ).scalars().first()
-        if dismissed is not None:
-            return False
-
     return send_deal_notification(a)
 
 

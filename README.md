@@ -2,7 +2,7 @@
 
 Ищет объявления в **Фленсбурге и в радиусе 5 км**, прогоняет их через локальную
 LLM (Ollama), считает реальную рыночную цену, ставит вердикт **TAKE / MAYBE / SKIP**
-и складывает всё в базу + REST API. Опционально — push на телефон (FCM).
+и складывает всё в базу + REST API. Опционально — уведомления в Telegram или push (FCM).
 
 > ⚠️ Проект **личный**. Не для распространения: скрейпинг Kleinanzeigen и перепродажа
 > — на свой страх и риск. Соблюдай их правила и лимиты (см. раздел «Анти-бан»).
@@ -22,7 +22,7 @@ LLM (Ollama), считает реальную рыночную цену, ста�
 9. [Как добавить новую категорию/нишу](#9-как-добавить-новую-категориюнишу)
 10. [Анти-бан: cooldown, бюджет, install-id, lock](#10-анти-бан)
 11. [Как считаются вердикты](#11-как-считаются-вердикты)
-12. [Push-уведомления (FCM)](#12-push-уведомления-fcm)
+12. [Уведомления: FCM и Telegram](#12-уведомления-fcm-и-telegram)
 13. [systemd-сервисы и автозапуск](#13-systemd-сервисы-и-автозапуск)
 14. [Cloudflare-туннель (доступ с телефона)](#14-cloudflare-туннель)
 15. [Структура проекта](#15-структура-проекта)
@@ -66,6 +66,7 @@ analyze_pending()   pipeline.py         — берёт N объявлений б
         │                                  └─ запись в analyses
         ▼
 maybe_notify()      notify/fcm.py       — push по TAKE (если FCM настроен)
+notify_telegram()   notify/telegram.py  — сообщение в Telegram (если настроен)
 ```
 
 Ключевые файлы:
@@ -153,6 +154,7 @@ cd ~/Work/flipper/backend
 ./.venv/bin/flipper run --once          # один ручной проход (уважает lock и cooldown)
 ./.venv/bin/flipper analyze <ad_id>     # вручную разобрать конкретное объявление
 ./.venv/bin/flipper uncooldown          # сбросить часовой cooldown
+./.venv/bin/flipper test-notify         # проверить Telegram-уведомления (§12.1)
 ```
 
 Пример вывода `recent`:
@@ -314,6 +316,8 @@ db:
   url: "sqlite:////home/prizrak/Work/flipper/backend/flipper.db"   # абсолютный путь!
 notify:
   fcm_service_account: ""   # путь к service-account.json (или FLIPPER_FCM_SERVICE_ACCOUNT)
+  telegram_bot_token: ""    # токен @BotFather (или FLIPPER_TELEGRAM_BOT_TOKEN)
+  telegram_chat_id: ""      # твой chat_id (или FLIPPER_TELEGRAM_CHAT_ID)
 ```
 
 ---
@@ -381,7 +385,38 @@ notify:
 
 ---
 
-## 12. Push-уведомления (FCM)
+## 12. Уведомления: FCM и Telegram
+
+Оба канала используют общий гейт `app/notify/gate.py` (`should_notify`): вердикт в
+`notify_only_verdicts`, маржа выше профильного порога, объявление живо и не отмёчено
+пользователем (`dismissed`/`ignored`). Не настроенный канал тихо ничего не шлёт.
+
+### 12.1. Telegram (рекомендуется — мобильное приложение не нужно)
+
+1. В Telegram напиши [@BotFather](https://t.me/BotFather) → `/newbot` → получи **токен**.
+2. Узнай свой **chat_id**: напиши что-нибудь боту, затем открой
+   `https://api.telegram.org/bot<ТОКЕН>/getUpdates` и возьми `chat.id`.
+   (Или напиши [@userinfobot](https://t.me/userinfobot) — он сразу покажет id.)
+3. Пропиши в `~/Work/flipper/.env`:
+
+   ```env
+   FLIPPER_TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
+   FLIPPER_TELEGRAM_CHAT_ID=123456789
+   ```
+
+4. Проверь канал:
+
+   ```bash
+   cd ~/Work/flipper/backend && ./.venv/bin/flipper test-notify
+   ```
+
+   Должно прийти «✅ flipper: тестовое уведомление — связь есть».
+5. `systemctl --user restart flipper`. Дальше по каждому новому `TAKE` будет приходить
+   сообщение с моделью, ценой, рынком, маржой, городом и ссылкой.
+
+Свой формат сообщения — `format_deal()` в `app/notify/telegram.py`.
+
+### 12.2. FCM (сложнее, нужен приложение-клиент)
 
 Код готов (`app/notify/fcm.py`), но **включается только если задан service-account**.
 Push приходит на зарегистрированное устройство (нужно приложение-клиент с FCM).
@@ -410,8 +445,7 @@ Push приходит на зарегистрированное устройст
 
 Файл `service-account*.json` уже в `.gitignore` — в репозиторий не попадёт.
 
-> **Альтернатива, проще:** Telegram-бот (просто HTTP-запрос к Bot API, без мобильного
-> приложения). Хороший кандидат на следующий шаг.
+> **Проще:** используй Telegram (§12.1) — без мобильного приложения и Firebase.
 
 ---
 
@@ -508,7 +542,7 @@ cd ~/Work/flipper/backend
 
 ## 17. Дальнейшие шаги
 
-- [ ] **Telegram-бот** как простой канал уведомлений (вместо/вместе с FCM).
+- [x] **Telegram-бот** как простой канал уведомлений (вместо/вместе с FCM) — см. §12.1.
 - [ ] Тюнинг ниш по факту улова (смотреть, что реально даёт TAKE).
 - [ ] Постоянный cloudflare-туннель (именованный) или локальный доступ.
 - [ ] Приложение/веб-лента для удобного просмотра карточек.

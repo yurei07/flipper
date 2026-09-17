@@ -72,6 +72,8 @@ class DbConfig:
 @dataclass
 class NotifyConfig:
     fcm_service_account: str = ""
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
 
 
 @dataclass
@@ -148,6 +150,12 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
         notify=NotifyConfig(
             fcm_service_account=os.getenv(
                 "FLIPPER_FCM_SERVICE_ACCOUNT", notif.get("fcm_service_account", "")
-            )
+            ),
+            telegram_bot_token=os.getenv(
+                "FLIPPER_TELEGRAM_BOT_TOKEN", notif.get("telegram_bot_token", "")
+            ),
+            telegram_chat_id=os.getenv(
+                "FLIPPER_TELEGRAM_CHAT_ID", notif.get("telegram_chat_id", "")
+            ),
         ),
     )
