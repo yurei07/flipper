@@ -27,7 +27,7 @@ def _get_messaging() -> object | None:
 
     path = load_config().notify.fcm_service_account
     if not path:
-        log.warning("FCM не настроен (fcm_service_account пуст) — пуши отключены")
+        log.debug("FCM не настроен (fcm_service_account пуст) — пуши отключены")
         _app = "disabled"
         return None
     try:
