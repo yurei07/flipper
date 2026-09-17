@@ -13,7 +13,6 @@ from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-
 from flipper.app.cooldown import in_cooldown, set_cooldown
 from flipper.app.scraper.client import ScraperBlocked
 from flipper.config import load_config
@@ -157,7 +156,7 @@ def run_cycle(manual: bool = False) -> None:
         lock.release()
 
 
-def start_scheduler() -> None:
+def start_scheduler() -> BackgroundScheduler:
     """Запускает фоновое расписание APScheduler с джиттером (§2.1)."""
     cfg = load_config()
     interval = cfg.scraper.poll_interval_min
@@ -171,3 +170,4 @@ def start_scheduler() -> None:
     )
     scheduler.start()
     log.info("scheduler: каждые %d мин (с джиттером)", interval)
+    return scheduler

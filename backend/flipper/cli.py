@@ -75,6 +75,34 @@ def cmd_status(cfg) -> None:
     print("вердикты:", ", ".join(f"{k}={v}" for k, v in by_verdict.items()))
 
 
+def cmd_recent(n: int = 15) -> None:
+    """Последние найденные объявления: город, цена, вердикт, маржа, ссылка."""
+    with get_session() as s:
+        listings = (
+            s.execute(select(Listing).order_by(Listing.last_seen_at.desc()).limit(n))
+            .scalars()
+            .all()
+        )
+        if not listings:
+            print("объявлений пока нет")
+            return
+        latest: dict[int, Analysis] = {}
+        for row in s.execute(
+            select(Analysis)
+            .order_by(Analysis.listing_id, Analysis.created_at.desc())
+        ).scalars().all():
+            latest.setdefault(row.listing_id, row)
+    for l in listings:
+        a = latest.get(l.ad_id)
+        v = a.verdict if a else "-"
+        m = f"+{a.margin_eur:.0f}€ ({a.margin_pct:.0f}%)" if a else "-"
+        city = l.location_city or "?"
+        print(
+            f"{l.last_seen_at:%H:%M} {city:<18} {l.price_cents / 100:>6.0f}€"
+            f"  {v:<5} {m:<16} {l.ad_id}  {l.url}"
+        )
+
+
 def cmd_cycles(n: int = 10) -> None:
     """Последние N циклов сканирования (мониторинг 24ч-прогона)."""
     with get_session() as s:
@@ -109,6 +137,8 @@ def main() -> None:
     uncool = sub.add_parser("uncooldown", help="сбросить cooldown вручную")
     cyc = sub.add_parser("cycles")
     cyc.add_argument("-n", type=int, default=10, help="сколько последних циклов показать")
+    rec = sub.add_parser("recent")
+    rec.add_argument("-n", type=int, default=15, help="сколько объявлений показать")
     args = p.parse_args()
 
     cfg = load_config()
@@ -127,6 +157,8 @@ def main() -> None:
         print("cooldown сброшен")
     elif args.cmd == "cycles":
         cmd_cycles(args.n)
+    elif args.cmd == "recent":
+        cmd_recent(args.n)
 
 
 if __name__ == "__main__":

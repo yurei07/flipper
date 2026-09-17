@@ -42,8 +42,8 @@ def _set_action(s: Session, ad_id: int, action: str) -> dict:
     return {"ok": True}
 
 
-def make_app() -> FastAPI:
-    app = FastAPI(title="flipper", version="0.1.0")
+def make_app(lifespan=None) -> FastAPI:
+    app = FastAPI(title="flipper", version="0.1.0", lifespan=lifespan)
     init_db(cfg.db.url)
 
     # --- Bearer-авторизация (один пользователь) ---
@@ -98,6 +98,10 @@ def make_app() -> FastAPI:
                 "margin_eur": a.margin_eur,
                 "margin_pct": a.margin_pct,
                 "confidence": a.confidence,
+                "location_city": (
+                    listings[a.listing_id].location_city
+                    if listings.get(a.listing_id) else None
+                ),
                 "saved": actions.get(a.listing_id) == "saved",
                 "ignored": actions.get(a.listing_id) in ("ignored", "dismissed"),
                 "created_at": a.created_at.isoformat() if a.created_at else None,

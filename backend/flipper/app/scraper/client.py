@@ -24,6 +24,20 @@ BLOCKED_EMPTY_MAX = 3  # N пустых ответов подряд считае
 # Где храним стабильный install-id (права 0700, как у токенов)
 _INSTALL_FILE = Path.home() / ".config" / "flipper" / "install_id"
 
+# Человекочитаемые значения sort_price -> то, что понимает API
+_SORT_MAP = {
+    "ASCENDING": "PRICE_ASCENDING",
+    "DESCENDING": "PRICE_DESCENDING",
+    "DATE": "DATE_DESCENDING",
+}
+
+
+def _normalize_sort(sort_price: str | None) -> str:
+    """Приводит sort_price к валидному sortType API (по умолчанию по дате)."""
+    if not sort_price:
+        return "DATE_DESCENDING"
+    return _SORT_MAP.get(sort_price, sort_price)
+
 
 class ScraperBlocked(RuntimeError):
     """Скрейпер упёрся в капчу/блок — нужен cooldown 1 час."""
@@ -98,6 +112,7 @@ class ScraperClient:
         location: str | None = None,
         sort_price: str | None = None,
         pages: int = 1,
+        category_id: int | None = None,
     ) -> list:
         """Поиск объявлений. Возвращает сырые Listing объекты."""
         kwargs: dict = {"q": q, "pages": pages}
@@ -107,7 +122,9 @@ class ScraperClient:
             kwargs["distance_km"] = radius_km
         if location is not None:
             kwargs["location"] = location
-        kwargs["sort_type"] = sort_price or "DATE_DESCENDING"
+        if category_id is not None:
+            kwargs["category_id"] = category_id
+        kwargs["sort_type"] = _normalize_sort(sort_price)
         self._tick()
         ads = self._api.search(**kwargs)
         self._watch_empty(len(ads))

@@ -1,39 +1,117 @@
 # ===== Скрейпер =====
 scraper:
   poll_interval_min: 20      # 10-20 реально; 20 = спокойнее для API
-  pages_per_search: 2        # макс страниц на поиск (не листаем каталог целиком)
+  pages_per_search: 1        # Flensburg+5км маленький — хватает одной страницы на поиск
   detail_delay_sec: [2, 6]   # пауза между запросами детальных страниц (рандом)
   # --- Бюджет запросов за один цикл (защита от бана, §2) ---
-  max_requests_per_cycle: 25 # общий лимит, дальше цикл заканчивается
-  analyze_per_cycle: 5       # сколько объявлений анализировать за цикл (медленный разгон)
-  enrich_per_cycle: 5        # сколько деталей добирать за цикл
-  # --- Группа 1: техника с дефектом (ремонт -> перепродажа) ---
+  max_requests_per_cycle: 30 # общий лимит, дальше цикл заканчивается
+  analyze_per_cycle: 8       # сколько объявлений анализировать за цикл (LLM ~1.5 мин/шт)
+  enrich_per_cycle: 3        # сколько деталей добирать за цикл
+  # --- Широкие ниши: и "чинится легко", и "рабочее по капейкам" ---
+  # LLM сам решает flip_type (ремонт vs перепродажа) по описанию.
+  # category_ids — узкая категория Kleinanzeigen (ID из каталога библиотеки):
+  #   173 Handy & Telefon | 278 Notebooks | 285 Tablets & Reader
+  #   225 PC-Zubehör & Software | 279 Konsolen | 176 Haushaltsgeräte
+  #   245 Foto | 172 Audio & Hifi
   searches:
-    - query: "MacBook defekt"
-      max_price_eur: 150
-      radius_km: 100
-      location: null
+    # Дефектное, но с дешёвым ремонтом (дисплей/аккумулятор/чистка)
     - query: "iPhone defekt"
       max_price_eur: 80
-      radius_km: 100
-    - query: "ThinkPad defekt"
-      max_price_eur: 120
-      radius_km: 100
-    - query: "Monitor defekt"
-      max_price_eur: 60
-      radius_km: 100
-    # --- Группа 2: исправная техника по капейкам (перепродажа как есть) ---
-    - query: "Laptop"
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [173]
+    - query: "MacBook defekt"
+      max_price_eur: 150
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [278]
+    - query: "Laptop defekt"
       max_price_eur: 100
-      radius_km: 100
-      sort_price: ASCENDING
-    - query: "Handy"
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [278]
+    - query: "Tablet defekt"
       max_price_eur: 60
-      radius_km: 100
-      sort_price: ASCENDING
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [285]
+    - query: "Drucker defekt"
+      max_price_eur: 40
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [225]
+    - query: "Kaffeevollautomat defekt"
+      max_price_eur: 100
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [176]
+    # Рабочее по капейкам -> перепродажа как есть. Свежие первыми: ловим
+    # недооценённые лоты в момент появления, а не вечные аксессуары по 5€.
+    - query: "iPhone"
+      max_price_eur: 120
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [173]
+    - query: "MacBook"
+      max_price_eur: 150
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [278]
+    - query: "iPad"
+      max_price_eur: 100
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [285]
+    - query: "Laptop"
+      max_price_eur: 120
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [278]
+    - query: "Grafikkarte"
+      max_price_eur: 150
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [225]
+    - query: "PlayStation Konsole"
+      max_price_eur: 100
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [279]
+    # --- Фото и аудио: линзы/камеры/усилители держат цену, часто чинятся ---
+    - query: "Kamera defekt"
+      max_price_eur: 60
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [245]
+    - query: "Kamera"
+      max_price_eur: 100
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [245]
+    - query: "Verstärker"
+      max_price_eur: 80
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [172]
+    - query: "Lautsprecher defekt"
+      max_price_eur: 40
+      radius_km: 5
+      location: "Flensburg"
+      category_ids: [172]
   # Титулы/описания с этими словами - отбрасывать (клиентский фильтр)
   exclude_keywords:
     - "abholung nur"
+  # Только по заголовку: аксессуары, а не техника (чехлы/плёнки/кабели)
+  exclude_title_keywords:
+    - "hülle"
+    - "panzerglas"
+    - "displayschutz"
+    - "displayfolie"
+    - "schutzhülle"
+    - "ohne smartphone"
+    - "nur verpackung"
+    - "ovp ohne"
+    - "handyhülle"
 
 # ===== Анализатор (LLM) =====
 analyzer:
@@ -49,8 +127,8 @@ analyzer:
 deal:
   min_margin_eur: 40         # порог для TAKE (ремонт)
   min_margin_pct: 35
-  min_margin_eur_resale: 50  # порог для TAKE (перепродажа как есть)
-  min_margin_pct_resale: 40
+  min_margin_eur_resale: 35  # порог для TAKE (перепродажа как есть) — ловим
+  min_margin_pct_resale: 35  # и низкобюджетные флипы (контроллеры, мелочь)
   logistics_eur: 5           # затраты на доставку при перепродаже
   notify_only_verdicts: ["TAKE"]
   market_factor: 0.88        # медиана цен объявлений x 0.88 (VB/торг)
@@ -63,7 +141,7 @@ api:
 
 # ===== БД =====
 db:
-  url: "sqlite:///./flipper.db"
+  url: "sqlite:////home/prizrak/Work/flipper/backend/flipper.db"
 
 # ===== Push (Phase B): путь к service-account.json или FLIPPER_FCM_SERVICE_ACCOUNT =====
 notify:

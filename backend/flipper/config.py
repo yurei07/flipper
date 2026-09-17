@@ -32,6 +32,7 @@ class ScraperConfig:
     enrich_per_cycle: int = 5
     searches: list[SearchConfig] = field(default_factory=list)
     exclude_keywords: list[str] = field(default_factory=list)
+    exclude_title_keywords: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -120,6 +121,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
             enrich_per_cycle=scr.get("enrich_per_cycle", 5),
             searches=searches,
             exclude_keywords=scr.get("exclude_keywords", []),
+            exclude_title_keywords=scr.get("exclude_title_keywords", []),
         ),
         analyzer=AnalyzerConfig(
             provider=ana.get("provider", "local"),

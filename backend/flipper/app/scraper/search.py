@@ -24,10 +24,17 @@ def _clean_title(title: str) -> str:
     return title.strip()
 
 
-def _excluded(title: str, description: str, keywords: list[str]) -> bool:
-    """Фильтр стоп-слов из конфига (правило §4)."""
+def _excluded(title: str, description: str, keywords: list[str], title_keywords: list[str] | None = None) -> bool:
+    """Фильтр стоп-слов из конфига (правило §4).
+
+    keywords — ищем в заголовке и описании; title_keywords — только в заголовке
+    (аксессуары: чехлы/плёнки, чтобы не путать с техникой).
+    """
     low = (title + " " + (description or "")).lower()
-    return any(k in low for k in keywords)
+    if any(k in low for k in keywords):
+        return True
+    low_title = title.lower()
+    return any(k in low_title for k in (title_keywords or []))
 
 
 def _to_listing(ad) -> Listing:
@@ -84,6 +91,7 @@ def scan_one(cfg: ScraperConfig, client: ScraperClient) -> int:
                     location=sc.location,
                     sort_price=sc.sort_price,
                     pages=cfg.pages_per_search,
+                    category_id=sc.category_ids[0] if sc.category_ids else None,
                 )
             except ScraperBlocked:
                 raise  # даём хендлеру уйти в cooldown
@@ -92,7 +100,12 @@ def scan_one(cfg: ScraperConfig, client: ScraperClient) -> int:
                 continue
 
             for ad in ads:
-                if _excluded(ad.title, ad.description or "", cfg.exclude_keywords):
+                if _excluded(
+                    ad.title,
+                    ad.description or "",
+                    cfg.exclude_keywords,
+                    cfg.exclude_title_keywords,
+                ):
                     continue
                 ad_id = int(ad.id)
                 if ad_id in seen_this_pass:
