@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flipper.app.db import get_session
-from flipper.app.models import Analysis, DeviceToken, Listing, UserAction
+from flipper.app.models import Analysis, DeviceToken, Listing, Search, UserAction
 from flipper.config import Config, load_config
 from flipper.app.db import init_db
 
@@ -20,6 +20,26 @@ class RegisterBody(BaseModel):
 
     fcm_token: str = Field(min_length=10, max_length=4096)
     platform: str = "android"
+
+
+class SearchBody(BaseModel):
+    """Тело создания/обновления поиска (управление из приложения)."""
+
+    query: str = Field(min_length=1, max_length=200)
+    max_price_eur: float | None = None
+    radius_km: int | None = None
+    location: str | None = None
+    sort_price: str | None = None
+    active: bool = True
+
+
+def _set_action(s: Session, ad_id: int, action: str) -> dict:
+    """Сохраняет действие пользователя по объявлению (saved/ignored/dismissed)."""
+    if s.get(Listing, ad_id) is None:
+        raise HTTPException(status_code=404, detail="not found")
+    s.add(UserAction(listing_id=ad_id, action=action))
+    s.commit()
+    return {"ok": True}
 
 
 def make_app() -> FastAPI:
@@ -53,18 +73,33 @@ def make_app() -> FastAPI:
         if min_margin:
             q = q.where(Analysis.margin_eur >= min_margin)
         rows = s.execute(q.offset(offset).limit(limit)).scalars().all()
-        titles = {
-            l.ad_id: l.title
+        listings = {
+            l.ad_id: l
             for l in s.execute(select(Listing)).scalars().all()
         }
+        # Последнее действие пользователя по объявлению (для badges в ленте)
+        actions: dict[int, str] = {}
+        for ua in s.execute(
+            select(UserAction).order_by(UserAction.at.desc())
+        ).scalars().all():
+            actions.setdefault(ua.listing_id, ua.action)  # первое (свежайшее) побеждает
         return [
             {
                 "ad_id": a.listing_id,
-                "title": titles.get(a.listing_id, ""),
+                "title": listings.get(a.listing_id).title if listings.get(a.listing_id) else "",
+                "price_cents": listings.get(a.listing_id).price_cents if listings.get(a.listing_id) else 0,
+                # Первое фото объявления — карточка в ленте
+                "image_url": (
+                    listings[a.listing_id].image_urls_json[0]
+                    if listings.get(a.listing_id) and listings[a.listing_id].image_urls_json
+                    else None
+                ),
                 "verdict": a.verdict,
                 "margin_eur": a.margin_eur,
                 "margin_pct": a.margin_pct,
                 "confidence": a.confidence,
+                "saved": actions.get(a.listing_id) == "saved",
+                "ignored": actions.get(a.listing_id) in ("ignored", "dismissed"),
                 "created_at": a.created_at.isoformat() if a.created_at else None,
             }
             for a in rows
@@ -78,6 +113,9 @@ def make_app() -> FastAPI:
         analysis = s.execute(
             select(Analysis).where(Analysis.listing_id == ad_id).order_by(Analysis.created_at.desc())
         ).scalars().first()
+        action = s.execute(
+            select(UserAction).where(UserAction.listing_id == ad_id).order_by(UserAction.at.desc())
+        ).scalars().first()
         return {
             "ad_id": listing.ad_id,
             "title": listing.title,
@@ -85,6 +123,10 @@ def make_app() -> FastAPI:
             "description": listing.description,
             "url": listing.url,
             "location_city": listing.location_city,
+            "image_urls": listing.image_urls_json,
+            "created_at": listing.first_seen_at.isoformat() if listing.first_seen_at else None,
+            "saved": action is not None and action.action == "saved",
+            "ignored": action is not None and action.action in ("ignored", "dismissed"),
             "analysis": (
                 {
                     "flip_type": analysis.flip_type,
@@ -105,11 +147,15 @@ def make_app() -> FastAPI:
 
     @app.post("/api/v1/listings/{ad_id}/saved")
     def save_listing(ad_id: int, _=Depends(require_key), s: Session = Depends(get_session)):
-        if s.get(Listing, ad_id) is None:
-            raise HTTPException(status_code=404, detail="not found")
-        s.add(UserAction(listing_id=ad_id, action="saved"))
-        s.commit()
-        return {"ok": True}
+        return _set_action(s, ad_id, "saved")
+
+    @app.post("/api/v1/listings/{ad_id}/ignored")
+    def ignore_listing(ad_id: int, _=Depends(require_key), s: Session = Depends(get_session)):
+        return _set_action(s, ad_id, "ignored")
+
+    @app.post("/api/v1/listings/{ad_id}/dismissed")
+    def dismiss_listing(ad_id: int, _=Depends(require_key), s: Session = Depends(get_session)):
+        return _set_action(s, ad_id, "dismissed")
 
     @app.post("/api/v1/notifications/register")
     def register_device(
@@ -127,6 +173,78 @@ def make_app() -> FastAPI:
         """Для отладки: сколько устройств получают пуши."""
         rows = s.execute(select(DeviceToken)).scalars().all()
         return [{"token": t.token, "platform": t.platform} for t in rows]
+
+    @app.post("/api/v1/analyze/{ad_id}")
+    def reanalyze(ad_id: int, _=Depends(require_key)):
+        """Ручной (пере)анализ объявления — cooldown соблюдается. Пушей не шлёт."""
+        from flipper.app.analyzer.ollama import OllamaProvider
+        from flipper.app.pipeline import run_on_listing
+        from flipper.app.scraper.client import ScraperClient
+
+        if not cfg.api.api_key:
+            pass  # auth уже пройден через bearer
+        from flipper.app.cooldown import in_cooldown
+        if in_cooldown():
+            raise HTTPException(status_code=429, detail="cooldown active")
+
+        scraper = ScraperClient(
+            delay_range=(0.1, 0.2),
+            max_requests=cfg.scraper.max_requests_per_cycle,
+        )
+        provider = OllamaProvider(
+            base_url=cfg.analyzer.ollama_base_url,
+            model=cfg.analyzer.model,
+            temperature=cfg.analyzer.temperature,
+            timeout_sec=cfg.analyzer.timeout_sec,
+            retries=cfg.analyzer.retries,
+        )
+        analysis = run_on_listing(ad_id, provider, scraper, cfg.deal, notify=False)
+        if analysis is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return {
+            "ad_id": analysis.listing_id,
+            "verdict": analysis.verdict,
+            "margin_eur": analysis.margin_eur,
+            "margin_pct": analysis.margin_pct,
+            "confidence": analysis.confidence,
+            "action_ru": analysis.action_ru,
+        }
+
+    @app.get("/api/v1/searches")
+    def list_searches(_=Depends(require_key), s: Session = Depends(get_session)):
+        rows = s.execute(select(Search).order_by(Search.id)).scalars().all()
+        return [{
+            "id": r.id,
+            "query": r.query,
+            "filters": r.filters_json,
+            "active": r.active,
+        } for r in rows]
+
+    @app.post("/api/v1/searches")
+    def create_search(body: SearchBody, _=Depends(require_key), s: Session = Depends(get_session)):
+        r = Search(
+            query=body.query,
+            filters_json={
+                "max_price_eur": body.max_price_eur,
+                "radius_km": body.radius_km,
+                "location": body.location,
+                "sort_price": body.sort_price,
+            },
+            active=body.active,
+        )
+        s.add(r)
+        s.commit()
+        s.refresh(r)
+        return {"id": r.id, "query": r.query, "active": r.active}
+
+    @app.delete("/api/v1/searches/{search_id}")
+    def delete_search(search_id: int, _=Depends(require_key), s: Session = Depends(get_session)):
+        r = s.get(Search, search_id)
+        if r is None:
+            raise HTTPException(status_code=404, detail="not found")
+        s.delete(r)
+        s.commit()
+        return {"ok": True}
 
     return app
 

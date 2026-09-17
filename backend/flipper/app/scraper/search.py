@@ -7,9 +7,10 @@ import time
 from datetime import datetime
 
 from flipper.app.db import get_session
-from flipper.app.models import Listing, STATUS_ACTIVE, _now
-from flipper.config import ScraperConfig
+from flipper.app.models import Listing, Search, STATUS_ACTIVE, _now
+from flipper.config import ScraperConfig, SearchConfig
 from flipper.app.scraper.client import ScraperClient, ScraperBlocked
+from sqlalchemy import select
 
 log = logging.getLogger(__name__)
 
@@ -46,13 +47,32 @@ def _to_listing(ad) -> Listing:
     )
 
 
+def _db_searches(s, cfg: ScraperConfig) -> list[SearchConfig]:
+    """Поиски из БД (добавленные через приложение), иначе дефолт из конфига."""
+    rows = s.execute(select(Search).where(Search.active == 1)).scalars().all()
+    if not rows:
+        return cfg.searches
+    return [
+        SearchConfig(
+            query=r.query,
+            max_price_eur=(r.filters_json or {}).get("max_price_eur"),
+            radius_km=(r.filters_json or {}).get("radius_km"),
+            location=(r.filters_json or {}).get("location"),
+            sort_price=(r.filters_json or {}).get("sort_price"),
+            category_ids=[],
+        )
+        for r in rows
+    ]
+
+
 def scan_one(cfg: ScraperConfig, client: ScraperClient) -> int:
     """Один проход по всем поискам. Возвращает число НОВЫХ объявлений."""
     new_count = 0
     # Локальный сет: одно объявление может попасть в несколько поисков за проход
     seen_this_pass: set[int] = set()
     with get_session() as s:
-        for i, sc in enumerate(cfg.searches):
+        searches = _db_searches(s, cfg) or cfg.searches
+        for i, sc in enumerate(searches):
             # Пауза между поисками — политичный ритм, избегаем троттлинга (§2)
             if i > 0:
                 time.sleep(random.uniform(3.0, 6.0))

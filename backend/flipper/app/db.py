@@ -14,10 +14,19 @@ _SessionLocal: sessionmaker[Session] | None = None
 def init_db(url: str) -> None:
     """Создаёт engine и таблицы (для старта без alembic — достаточно)."""
     global _engine, _SessionLocal
-    _engine = create_engine(
-        url,
-        connect_args={"check_same_thread": False} if url.startswith("sqlite") else {},
+    kwargs = (
+        {"connect_args": {"check_same_thread": False}}
+        if url.startswith("sqlite")
+        else {}
     )
+    if url == "sqlite:///:memory:":
+        # In-memory SQLite: каждый connect даёт свежую пустую БД. StaticPool
+        # держит одно соединение — иначе тестовые таблицы «пропадают» в потоках.
+        from sqlalchemy.pool import StaticPool
+
+        kwargs["poolclass"] = StaticPool
+        kwargs.setdefault("connect_args", {})["check_same_thread"] = False
+    _engine = create_engine(url, **kwargs)
     Base.metadata.create_all(_engine)
     _SessionLocal = sessionmaker(bind=_engine, autoflush=False)
 
