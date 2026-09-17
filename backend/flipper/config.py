@@ -143,5 +143,9 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
         ),
         api=ApiConfig(api_key=os.getenv("FLIPPER_API_KEY", api.get("api_key", ""))),
         db=DbConfig(url=db.get("url", "sqlite:///./flipper.db")),
-        notify=NotifyConfig(fcm_service_account=notif.get("fcm_service_account", "")),
+        notify=NotifyConfig(
+            fcm_service_account=os.getenv(
+                "FLIPPER_FCM_SERVICE_ACCOUNT", notif.get("fcm_service_account", "")
+            )
+        ),
     )

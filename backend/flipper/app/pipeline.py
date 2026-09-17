@@ -10,6 +10,7 @@ from flipper.app.analyzer.base import Provider
 from flipper.app.analyzer.schema import AnalysisResult, Verdict
 from flipper.app.db import get_session
 from flipper.app.models import Analysis, Listing
+from flipper.app.notify.fcm import maybe_notify
 from flipper.app.pricing.market import market_price_eur, model_key
 from flipper.app.pricing.parts import get_parts_cost
 from flipper.app.scraper.client import ScraperClient, ScraperBlocked
@@ -74,6 +75,7 @@ def run_on_listing(
     provider: Provider,
     scraper: ScraperClient,
     deal_cfg: DealConfig,
+    notify: bool = True,
 ) -> Analysis | None:
     """Анализ + ценовой модуль, запись в analyses. Возвращает SQLAlchemy-объект."""
     with get_session() as s:
@@ -134,6 +136,9 @@ def run_on_listing(
         s.add(analysis)
         s.commit()
         s.refresh(analysis)
+        # Push после успешного сохранения (новый TAKE заслуживает пуш по §9)
+        if notify:
+            maybe_notify(analysis, deal_cfg)
         return analysis
 
 

@@ -3,15 +3,23 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flipper.app.db import get_session
-from flipper.app.models import Analysis, Listing, UserAction
+from flipper.app.models import Analysis, DeviceToken, Listing, UserAction
 from flipper.config import Config, load_config
 from flipper.app.db import init_db
 
 cfg: Config = load_config()
+
+
+class RegisterBody(BaseModel):
+    """Тело регистрации FCM-токена телефона (§8)."""
+
+    fcm_token: str = Field(min_length=10, max_length=4096)
+    platform: str = "android"
 
 
 def make_app() -> FastAPI:
@@ -102,6 +110,23 @@ def make_app() -> FastAPI:
         s.add(UserAction(listing_id=ad_id, action="saved"))
         s.commit()
         return {"ok": True}
+
+    @app.post("/api/v1/notifications/register")
+    def register_device(
+        body: RegisterBody,
+        _=Depends(require_key),
+        s: Session = Depends(get_session),
+    ):
+        """Телефон шлёт свой FCM-токен при старте. Повторный post обновляет platform."""
+        s.merge(DeviceToken(token=body.fcm_token, platform=body.platform))
+        s.commit()
+        return {"ok": True}
+
+    @app.get("/api/v1/notifications/tokens")
+    def list_tokens(_=Depends(require_key), s: Session = Depends(get_session)):
+        """Для отладки: сколько устройств получают пуши."""
+        rows = s.execute(select(DeviceToken)).scalars().all()
+        return [{"token": t.token, "platform": t.platform} for t in rows]
 
     return app
 

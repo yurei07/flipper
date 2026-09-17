@@ -65,6 +65,6 @@ api:
 db:
   url: "sqlite:///./flipper.db"
 
-# ===== Push (Phase B) =====
+# ===== Push (Phase B): путь к service-account.json или FLIPPER_FCM_SERVICE_ACCOUNT =====
 notify:
   fcm_service_account: ""

@@ -51,7 +51,7 @@ def cmd_analyze_one(ad_id: int) -> None:
     client = ScraperClient(
         delay_range=(0.1, 0.2), max_requests=cfg.scraper.max_requests_per_cycle
     )
-    a = run_on_listing(ad_id, provider, client, cfg.deal)
+    a = run_on_listing(ad_id, provider, client, cfg.deal, notify=False)
     if a is None:
         print(f"листинг {ad_id} не найден")
     else:
