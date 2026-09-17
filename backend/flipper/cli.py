@@ -9,7 +9,7 @@ import argparse
 import logging
 from sqlalchemy import func, select
 
-from flipper.app.analyzer.ollama import OllamaProvider
+from flipper.app.analyzer.factory import make_provider
 from flipper.app.db import get_session, init_db
 from flipper.app.models import Analysis, CycleRun, Listing, STATUS_ACTIVE
 from flipper.app.scheduler import run_cycle
@@ -37,19 +37,15 @@ def cmd_run_once() -> None:
 def cmd_analyze_one(ad_id: int) -> None:
     """Ручной прогон анализа без скана (не пишет в API поисками)."""
     cfg = load_config()
-    provider = OllamaProvider(
-        base_url=cfg.analyzer.ollama_base_url,
-        model=cfg.analyzer.model,
-        temperature=cfg.analyzer.temperature,
-        timeout_sec=cfg.analyzer.timeout_sec,
-        retries=cfg.analyzer.retries,
-    )
+    provider = make_provider(cfg.analyzer)
     # Ручной анализ тоже уважает cooldown (не ходим к рынку во время бана)
     if in_cooldown():
         print("cooldown активен — анализ пропущен")
         return
     client = ScraperClient(
-        delay_range=(0.1, 0.2), max_requests=cfg.scraper.max_requests_per_cycle
+        delay_range=(0.1, 0.2),
+        max_requests=cfg.scraper.max_requests_per_cycle,
+        max_requests_per_hour=cfg.scraper.max_requests_per_hour,
     )
     a = run_on_listing(ad_id, provider, client, cfg.deal, notify=False)
     if a is None:

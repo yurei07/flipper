@@ -30,6 +30,10 @@ class SearchConfig:
 @dataclass
 class ScraperConfig:
     poll_interval_min: int = 20
+    active_minutes: int = 150
+    rest_minutes: int = 30
+    max_requests_per_hour: int = 70
+    searches_per_cycle: int = 0  # 0 = все; >0 = ротация подмножества ниш
     pages_per_search: int = 2
     detail_delay_sec: list[float] = field(default_factory=lambda: [2.0, 6.0])
     max_requests_per_cycle: int = 25
@@ -42,13 +46,19 @@ class ScraperConfig:
 
 @dataclass
 class AnalyzerConfig:
-    provider: str = "local"          # local | groq | deepseek
+    provider: str = "local"          # local | groq | openrouter | cerebras | together
     model: str = "qwen3:8b"
     temperature: float = 0.1
     timeout_sec: int = 120
     retries: int = 2
     min_confidence: float = 0.7
     ollama_base_url: str = "http://localhost:11434"
+    # OpenAI-совместимый API (Groq/OpenRouter/Cerebras/Together…)
+    base_url: str = ""
+    api_key: str = ""                # лучше через env FLIPPER_LLM_API_KEY
+    api_key_env: str = ""            # напр. "GROQ_API_KEY"
+    fallback_local: bool = True      # при сбое API — падать на локальную модель
+    local_model: str = "qwen3:8b"
 
 
 @dataclass
@@ -121,6 +131,10 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
     return Config(
         scraper=ScraperConfig(
             poll_interval_min=scr.get("poll_interval_min", 20),
+            active_minutes=scr.get("active_minutes", 150),
+            rest_minutes=scr.get("rest_minutes", 30),
+            max_requests_per_hour=scr.get("max_requests_per_hour", 70),
+            searches_per_cycle=scr.get("searches_per_cycle", 0),
             pages_per_search=scr.get("pages_per_search", 2),
             detail_delay_sec=scr.get("detail_delay_sec", [2.0, 6.0]),
             max_requests_per_cycle=scr.get("max_requests_per_cycle", 25),
@@ -138,6 +152,11 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
             retries=ana.get("retries", 2),
             min_confidence=ana.get("min_confidence", 0.7),
             ollama_base_url=ana.get("ollama_base_url", "http://localhost:11434"),
+            base_url=os.getenv("FLIPPER_LLM_BASE_URL", ana.get("base_url", "")),
+            api_key=os.getenv("FLIPPER_LLM_API_KEY", ana.get("api_key", "")),
+            api_key_env=ana.get("api_key_env", ""),
+            fallback_local=ana.get("fallback_local", True),
+            local_model=ana.get("local_model", "qwen3:8b"),
         ),
         deal=DealConfig(
             min_margin_eur=dl.get("min_margin_eur", 40),

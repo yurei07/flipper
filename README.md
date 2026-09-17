@@ -1,8 +1,10 @@
 # flipper — личный сканер выгодных объявлений на Kleinanzeigen
 
-Ищет объявления в **Фленсбурге и в радиусе 5 км**, прогоняет их через локальную
-LLM (Ollama), считает реальную рыночную цену, ставит вердикт **TAKE / MAYBE / SKIP**
-и складывает всё в базу + REST API. Опционально — уведомления в Telegram или push (FCM).
+Ищет объявления в **Фленсбурге и в радиусе 5 км**, прогоняет их через LLM
+(по умолчанию бесплатный облачный API Groq, `qwen/qwen3.8-27b`; офлайн-фолбэк —
+локальная Ollama `qwen3:8b`), считает реальную рыночную цену, ставит вердикт
+**TAKE / MAYBE / SKIP** и складывает всё в базу + REST API. Опционально —
+уведомления в Telegram или push (FCM).
 
 > ⚠️ Проект **личный**. Не для распространения: скрейпинг Kleinanzeigen и перепродажа
 > — на свой страх и риск. Соблюдай их правила и лимиты (см. раздел «Анти-бан»).
@@ -33,11 +35,12 @@ LLM (Ollama), считает реальную рыночную цену, ста�
 
 ## 1. Что делает проект
 
-Раз в ~20 минут (с джиттером) сервис:
+Раз в 15 минут (с джиттером), в режиме **2.5 ч работы / 30 мин отдыха**, сервис:
 
 1. Пробегает по списку поисков (Flensburg ±5 км, конкретные категории Kleinanzeigen).
 2. Новые объявления сохраняет в SQLite и добирает детали.
-3. Каждое объявление прогоняет через локальную LLM `qwen3:8b` (Ollama):
+3. Каждое объявление прогоняет через LLM (облачный Groq `qwen/qwen3.8-27b`,
+   либо локальная `qwen3:8b`, если ключа нет или API недоступен):
    определяет тип устройства, неисправность, стоимость ремонта.
 4. Проверяет **реальную** рыночную цену по рабочим аналогам на Kleinanzeigen.
 5. Считает маржу и ставит вердикт **TAKE / MAYBE / SKIP**.
@@ -50,17 +53,17 @@ LLM (Ollama), считает реальную рыночную цену, ста�
 ## 2. Как это работает (пайплайн)
 
 ```
-APScheduler (каждые 20 мин)
+APScheduler (каждые 15 мин, 2.5 ч/30 мин)
         │
         ▼
-scan_one()          scraper/search.py   — поиски → дедуп → запись в listings
+scan_one()          scraper/search.py   — ротация ниш → дедуп → запись в listings
         │
         ▼
 enrich_new()        scraper/detail.py   — добирает описание детальной страницы
         │
         ▼
 analyze_pending()   pipeline.py         — берёт N объявлений без анализа:
-        │                                  ├─ analyze_listing()  → Ollama (LLM)
+        │                                  ├─ analyze_listing()  → LLM (Groq/Ollama)
         │                                  ├─ market_price_eur() → медиана цен аналогов
         │                                  ├─ recompute_verdict() → TAKE/MAYBE/SKIP
         │                                  └─ запись в analyses
@@ -76,7 +79,9 @@ notify_telegram()   notify/telegram.py  — сообщение в Telegram (ес
 | `app/scraper/client.py` | единая точка доступа к API Kleinanzeigen, бюджет запросов, детект блока |
 | `app/scraper/search.py` | проход по поискам, дедуп, клиентские фильтры (стоп-слова) |
 | `app/scraper/detail.py` | детальные страницы, пометка удалённых (`gone`) |
-| `app/analyzer/ollama.py` | клиент Ollama с ретраями |
+| `app/analyzer/ollama.py` | клиент Ollama с ретраями (локальный провайдер) |
+| `app/analyzer/openai_compat.py` | клиент облачного OpenAI-совместимого API (Groq и др.), бэкофф на 429 |
+| `app/analyzer/factory.py` | выбор провайдера + фолбэк на локальную модель |
 | `app/analyzer/analyze.py` | промпт + парсинг ответа LLM в строгую схему |
 | `app/pricing/market.py` | реальная рыночная цена (медиана рабочих аналогов) |
 | `app/pipeline.py` | пересчёт маржи/вердикта, запись анализа |
@@ -89,12 +94,20 @@ notify_telegram()   notify/telegram.py  — сообщение в Telegram (ес
 ## 3. Требования
 
 - Linux (проверено на Omarchy/Arch), Python **3.12+**
-- **Ollama** с моделью `qwen3:8b` (`ollama pull qwen3:8b`)
+- Ключ бесплатного облачного LLM **Groq** (`GROQ_API_KEY`, без карты:
+  https://console.groq.com → API Keys) — основной вариант
+- **Ollama** с моделью `qwen3:8b` (`ollama pull qwen3:8b`) — офлайн-фолбэк,
+  если ключа нет или облако вернуло ошибку/лимит
 - Docker + docker compose (опционально — есть и systemd-вариант)
 - `cloudflared` (опционально — доступ с телефона)
 
-Железо: LLM `qwen3:8b` (~6 ГБ) жрёт заметно RAM/GPU. На CPU один анализ ~1.5–3 мин,
-с GPU — быстрее. Это влияет на `analyze_per_cycle` (см. ниже).
+Железо: облачный LLM не грузит машину вообще. Локальный фолбэк `qwen3:8b`
+(~6 ГБ) жрёт заметно RAM/GPU: на CPU один анализ ~1.5–3 мин, с GPU быстрее.
+Это влияет на `analyze_per_cycle` (см. ниже).
+
+> Бесплатный тариф Groq: 1000 запросов/день и **8000 токенов/мин** на модель —
+> при всплеске анализ получает `429`, клиент сам ждёт и повторяет (fallback на
+> локальную модель только если ретраи исчерпаны).
 
 ---
 
@@ -106,8 +119,8 @@ notify_telegram()   notify/telegram.py  — сообщение в Telegram (ес
 cd ~/Work/flipper/backend
 python -m venv .venv
 ./.venv/bin/pip install -e '.[test]'
-cp ../.env.example ../.env            # и заполни FLIPPER_API_KEY
-ollama pull qwen3:8b
+cp ../.env.example ../.env            # заполни FLIPPER_API_KEY и GROQ_API_KEY
+ollama pull qwen3:8b                  # только для офлайн-фолбэка
 ```
 
 Запуск сервера:
@@ -243,14 +256,17 @@ alias flip='cd ~/Work/flipper/backend && ./.venv/bin/flipper'
 
 Файл: `backend/config.yaml`.
 
-### scrapyer
+### scraper
 
 | Ключ | Смысл |
 |---|---|
-| `poll_interval_min` | период циклов в минутах (20 = спокойно для API) |
+| `poll_interval_min` | период циклов в минутах (15) |
 | `pages_per_search` | страниц на один поиск (для Flensburg+5км хватает `1`) |
-| `detail_delay_sec` | случайная пауза между детальными запросами |
+| `detail_delay_sec` | случайная пауза перед каждым запросом |
 | `max_requests_per_cycle` | жёсткий бюджет запросов за цикл |
+| `max_requests_per_hour` | жёсткий часовой потолок запросов (общий для CLI и сервиса) |
+| `searches_per_cycle` | сколько ниш обходить за цикл (ротация; 8 из 16) |
+| `active_minutes` / `rest_minutes` | режим работы: 2.5 ч активны, 30 мин полный покой |
 | `analyze_per_cycle` | сколько объявлений разбирать LLM за цикл |
 | `enrich_per_cycle` | сколько деталей добирать за цикл |
 | `searches[]` | список поисков (см. ниже) |
@@ -287,11 +303,16 @@ alias flip='cd ~/Work/flipper/backend && ./.venv/bin/flipper'
 
 | Ключ | Смысл |
 |---|---|
-| `provider` | `local` (Ollama) |
-| `model` | модель, по умолчанию `qwen3:8b` |
+| `provider` | `groq` (облако) / `local` (Ollama) / `openrouter` / `cerebras` / `together` |
+| `model` | модель (`qwen/qwen3.8-27b` для Groq, `qwen3:8b` для local) |
+| `base_url` | OpenAI-совместимый endpoint (для Groq заполнен) |
+| `api_key` | ключ (лучше не тут, а в `.env`: `GROQ_API_KEY`) |
+| `api_key_env` | имя env-переменной с ключом |
+| `fallback_local` | при ошибке/лимите API считать локальной моделью |
+| `local_model` | какая Ollama-модель для фолбэка |
 | `temperature` | 0.1 — меньше фантазии |
-| `timeout_sec` | таймаут одного запроса к Ollama |
-| `retries` | повторы при таймауте |
+| `timeout_sec` | таймаут одного запроса к LLM |
+| `retries` | повторы при таймауте/429 |
 | `min_confidence` | минимальная уверенность модели |
 | `ollama_base_url` | `http://localhost:11434` |
 
@@ -342,7 +363,7 @@ notify:
      category_ids: [245]
    ```
 
-3. Убедись, что хватает бюджета: `поисков + enrich_per_cycle + analyze_per_cycle ≤ max_requests_per_cycle`.
+3. Убедись, что хватает бюджета: `searches_per_cycle + enrich_per_cycle + analyze_per_cycle ≤ max_requests_per_cycle`, и что часовой лимит не выедается на новых циклах.
 
 4. `systemctl --user restart flipper`
 
@@ -357,13 +378,23 @@ notify:
 Чтобы не получить капчу/бан от Kleinanzeigen:
 
 - **Бюджет запросов** на цикл (`max_requests_per_cycle`). При превышении — `ScraperBlocked`.
+- **Часовой потолок** (`max_requests_per_hour`, файл `~/.config/flipper/rate_limit.json`
+  под `flock`): общий для CLI и сервиса, скользящее окно 1 час. Превышение → cooldown.
+- **Ротация ниш и случайный порядок**: за цикл берём `searches_per_cycle` ниш из общего
+  списка со сдвигом по времени, порядок каждый раз перемешивается — нет монотонного
+  паттерна.
+- **Режим работы/отдыха**: `active_minutes` (2.5 ч) активны, `rest_minutes` (30 мин) —
+  цикл полностью пропускается (запись `rest`), аккаунт «остывает».
 - **Cooldown 1 час** при блоке (`app/cooldown.py`, таблица `settings`). Снять вручную:
   `flipper uncooldown`.
+- **Счётчик сбоев**: серия неудачных запросов (`FAILURES_BEFORE_COOLDOWN`) или три
+  пустых ответа подряд → `ScraperBlocked` → cooldown.
 - **Стабильный install-id** (`~/.config/flipper/install_id`) — не выглядим как новое
   устройство на каждом цикле.
 - **Single-instance lock** (`/tmp/flipper_cycle.lock`) — CLI и таймер не запускают
   два цикла одновременно.
-- Случайные паузы между запросами; `distance_km` и разумный `pages_per_search`.
+- **Человекоподобные паузы** перед каждым запросом; `distance_km` и разумный
+  `pages_per_search`.
 
 Если в логах `включаю cooldown` — просто пережди час; сервис продолжит сам.
 
@@ -455,7 +486,7 @@ Push приходит на зарегистрированное устройст
 
 - `flipper.service` — uvicorn на `:8000` + APScheduler
 - `cloudflared.service` — туннель к `:8000`
-- `ollama.service` — LLM (системный)
+- `ollama.service` — LLM (системный, нужен только для офлайн-фолбэка)
 
 Автозапуск:
 
@@ -494,9 +525,9 @@ flipper/
 ├── backend/
 │   ├── flipper/
 │   │   ├── app/
-│   │   │   ├── analyzer/     # LLM: base, ollama, analyze, prompt, schema
+│   │   │   ├── analyzer/     # LLM: base, ollama, openai_compat, factory, prompt, schema
 │   │   │   ├── api/routes.py # REST API
-│   │   │   ├── notify/fcm.py # push
+│   │   │   ├── notify/       # fcm.py (push), telegram.py, gate.py
 │   │   │   ├── pricing/      # market.py, parts.py
 │   │   │   ├── scraper/      # client.py, search.py, detail.py
 │   │   │   ├── main.py       # uvicorn + lifespan
@@ -527,7 +558,10 @@ flipper/
 | `ollama попытка N/3 упала: timed out` | модель не успела. Увеличь `analyzer.timeout_sec`, оставь ретраи. Первый запрос после простоя всегда медленный (загрузка модели) |
 | `рыночный поиск ... упал: GET failed` | временный сбой API; вердикт считается по оценке модели (флаг estimate). Не критично |
 | Поиск `упал: GET failed` | невалидный `sort_price` или сеть. Валидные: `PRICE_ASCENDING`, `PRICE_DESCENDING`, `DATE_DESCENDING`, `DISTANCE_ASCENDING` |
-| Пусто в `recent` | сервис ещё не прошёл цикл — подожди до 20 мин или `flipper run --once` |
+| Пусто в `recent` | сервис ещё не прошёл цикл — подожди до 15 мин или `flipper run --once` |
+| В логе `LLM 429 (лимит), ждём Ns` | бесплатный тариф Groq (8000 токенов/мин). Клиент сам ждёт; если долго — уменьши `analyze_per_cycle` |
+| `фолбэк на локальную модель` | API-ключ не задан/ошибка/лимит — считает Ollama. Проверь `GROQ_API_KEY` |
+| `окно отдыха — цикл пропущен` | штатный режим 2.5 ч/30 мин, ничего делать не надо |
 | `FCM не настроен — пуши отключены` | нет service-account (см. §12). Не мешает работе |
 | Много аксессуаров в ленте | добавь слова в `exclude_title_keywords` |
 
@@ -543,6 +577,8 @@ cd ~/Work/flipper/backend
 ## 17. Дальнейшие шаги
 
 - [x] **Telegram-бот** как простой канал уведомлений (вместо/вместе с FCM) — см. §12.1.
+- [x] **Облачный LLM** (Groq, free) вместо локальной Ollama — быстрее и умнее; офлайн-фолбэк остался.
+- [x] **Режим работы/отдыха** 2.5 ч / 30 мин + часовой лимит запросов + ротация ниш.
 - [ ] Тюнинг ниш по факту улова (смотреть, что реально даёт TAKE).
 - [ ] Постоянный cloudflare-туннель (именованный) или локальный доступ.
 - [ ] Приложение/веб-лента для удобного просмотра карточек.

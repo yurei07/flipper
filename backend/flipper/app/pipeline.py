@@ -186,6 +186,15 @@ def analyze_pending(
                 len(pending),
             )
             break
+        if results:
+            # Пейсинг под бесплатный TPM-лимит облачной LLM: не бьём всеми
+            # запросами в одну минуту. Локальная модель не лимитирована — пауза
+            # всё равно безвредна (цикл и так раз в 15 мин).
+            gap = 15.0
+            if deadline is not None and time.monotonic() + gap >= deadline:
+                log.info("дедлайн близко: пауза пейсинга пропущена")
+                break
+            time.sleep(gap)
         try:
             a = run_on_listing(listing.ad_id, provider, scraper, deal_cfg)
             if a is not None:

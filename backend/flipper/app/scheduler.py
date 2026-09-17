@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import fcntl
 import logging
-import random
+import time
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -88,6 +88,19 @@ class CycleLock:
         self.file.close()
 
 
+def _in_rest_window(scraper) -> bool:
+    """True, если сейчас окно отдыха (долгий перерыв после 2-3 ч работы).
+
+    Период = active_minutes + rest_minutes, отсчёт от эпохи — детерминированно
+    и без внешнего состояния: сначала 2.5 ч работы, потом 30 мин полного покоя.
+    """
+    active = scraper.active_minutes * 60
+    rest = scraper.rest_minutes * 60
+    if active <= 0 or rest <= 0 or scraper.active_minutes >= 24 * 60:
+        return False
+    return (time.time() % (active + rest)) >= active
+
+
 def run_cycle(manual: bool = False) -> None:
     """Один цикл: скан -> детали -> анализ. Общий вход для таймера и CLI.
 
@@ -105,6 +118,11 @@ def run_cycle(manual: bool = False) -> None:
         _record("cooldown", 0, 0, 0, "")
         return
 
+    if _in_rest_window(cfg.scraper):
+        log.info("окно отдыха — цикл пропущен (бережём аккаунт)")
+        _record("rest", 0, 0, 0, "")
+        return
+
     lock = CycleLock()
     if not lock.acquire():
         log.info("другой цикл уже работает — пропускаем")
@@ -112,7 +130,7 @@ def run_cycle(manual: bool = False) -> None:
 
     run_id = _record("ok", 0, 0, 0, "")  # стартовая запись, финализируем ниже
     try:
-        from flipper.app.analyzer.ollama import OllamaProvider
+        from flipper.app.analyzer.factory import make_provider
         from flipper.app.scraper.client import ScraperClient
         from flipper.app.scraper.detail import enrich_new
         from flipper.app.scraper.search import scan_one
@@ -121,14 +139,9 @@ def run_cycle(manual: bool = False) -> None:
         client = ScraperClient(
             delay_range=cfg.scraper.detail_delay_sec,
             max_requests=cfg.scraper.max_requests_per_cycle,
+            max_requests_per_hour=cfg.scraper.max_requests_per_hour,
         )
-        provider = OllamaProvider(
-            base_url=cfg.analyzer.ollama_base_url,
-            model=cfg.analyzer.model,
-            temperature=cfg.analyzer.temperature,
-            timeout_sec=cfg.analyzer.timeout_sec,
-            retries=cfg.analyzer.retries,
-        )
+        provider = make_provider(cfg.analyzer)
 
         new = scan_one(cfg.scraper, client)
         if new:
@@ -169,7 +182,7 @@ def start_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
     scheduler.add_job(
         run_cycle,
-        trigger=IntervalTrigger(minutes=interval, jitter=random.randint(1, 5 * 60)),
+        trigger=IntervalTrigger(minutes=interval, jitter=60),
         id="crawl_cycle",
         max_instances=1,
         coalesce=True,

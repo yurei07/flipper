@@ -78,11 +78,19 @@ def scan_one(cfg: ScraperConfig, client: ScraperClient) -> int:
     # Локальный сет: одно объявление может попасть в несколько поисков за проход
     seen_this_pass: set[int] = set()
     with get_session() as s:
-        searches = _db_searches(s, cfg) or cfg.searches
-        for i, sc in enumerate(searches):
-            # Пауза между поисками — политичный ритм, избегаем троттлинга (§2)
-            if i > 0:
-                time.sleep(random.uniform(3.0, 6.0))
+        ordered = _db_searches(s, cfg) or cfg.searches
+        # Ротация ниш: за цикл берём подмножество (searches_per_cycle), со
+        # сдвигом по времени — за пару циклов охватываем все, но не бомбим API.
+        n = cfg.searches_per_cycle
+        if n and n < len(ordered):
+            step = int(time.time()) // (max(cfg.poll_interval_min, 1) * 60)
+            offset = (step * n) % len(ordered)
+            searches = [ordered[(offset + k) % len(ordered)] for k in range(n)]
+        else:
+            searches = list(ordered)
+        random.shuffle(searches)  # порядок каждый раз разный (анти-паттерн)
+
+        for sc in searches:
             try:
                 ads = client.search(
                     q=sc.query,

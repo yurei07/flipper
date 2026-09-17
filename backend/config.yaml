@@ -1,11 +1,16 @@
 # ===== Скрейпер =====
 scraper:
-  poll_interval_min: 30      # 20-30 реально; 30 = спокойнее для API и цикл успевает
+  poll_interval_min: 15      # цикл каждые 15 мин (в активном окне)
+  # --- Режим «работа/отдых»: бережём аккаунт от бана ---
+  active_minutes: 150        # 2.5 часа активной работы подряд
+  rest_minutes: 30           # затем 30 минут полного отдыха (API не трогаем)
+  max_requests_per_hour: 70  # жёсткий часовой потолок запросов к Kleinanzeigen
+  searches_per_cycle: 8      # за цикл обходим 8 ниш из 16 (ротация) — не бомбим API
   pages_per_search: 1        # Flensburg+5км маленький — хватает одной страницы на поиск
   detail_delay_sec: [2, 6]   # пауза между запросами детальных страниц (рандом)
   # --- Бюджет запросов за один цикл (защита от бана, §2) ---
   max_requests_per_cycle: 30 # общий лимит, дальше цикл заканчивается
-  analyze_per_cycle: 6       # сколько объявлений анализировать за цикл (LLM ~1.5 мин/шт)
+  analyze_per_cycle: 4       # сколько объявлений анализировать за цикл (лимит TPM Groq)
   enrich_per_cycle: 3        # сколько деталей добирать за цикл
   # --- Широкие ниши: и "чинится легко", и "рабочее по капейкам" ---
   # LLM сам решает flip_type (ремонт vs перепродажа) по описанию.
@@ -134,11 +139,16 @@ scraper:
 
 # ===== Анализатор (LLM) =====
 analyzer:
-  provider: local            # local | groq | deepseek
-  model: "qwen3:8b"
+  provider: groq             # local | groq | openrouter | cerebras | together
+  model: "qwen/qwen3.8-27b"
+  base_url: "https://api.groq.com/openai/v1"
+  api_key: ""                # лучше через .env: GROQ_API_KEY или FLIPPER_LLM_API_KEY
+  api_key_env: "GROQ_API_KEY"
+  fallback_local: true       # API упал/лимит -> считаем локальной моделью
+  local_model: "qwen3:8b"    # локальный фолбэк (можно qwen3:14b)
   temperature: 0.1
-  timeout_sec: 120
-  retries: 2
+  timeout_sec: 60
+  retries: 3
   min_confidence: 0.7
   ollama_base_url: "http://localhost:11434"
 
