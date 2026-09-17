@@ -5,22 +5,24 @@ services:
     volumes:
       - ./backend:/app
     env_file:
-      - .env
-    ports:
-      - "8000:8000"
+      - path: .env
+        required: false
+    # host-сеть: скрейпер выходит с домашнего IP (§2.4) и видит Ollama на localhost:11434.
+    # Порты в этом режиме не пробрасываются — backend слушает 8000 на хосте напрямую.
+    network_mode: host
     restart: unless-stopped
     command: >
       sh -c "uvicorn flipper.app.main:app
              --host 0.0.0.0 --port 8000"
-    # Ollama живёт отдельно на хосте (родным инсталлятором), не в compose
+
+  # Ollama живёт отдельно на хосте (родным инсталлятором), не в compose
 
   # Один из вариантов — ollama в контейнере (выключен по умолчанию,
   # чтобы не дублировать основной ПК; раскомментируй при необходимости)
   # ollama:
   #   image: ollama/ollama:latest
   #   container_name: ollama
-  #   ports:
-  #     - "11434:11434"
+  #   networks: [shared]
   #   volumes:
   #     - ollama_data:/root/.ollama
   #   restart: unless-stopped

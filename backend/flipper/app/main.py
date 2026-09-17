@@ -1,8 +1,13 @@
 """Точка входа uvicorn + фоновое расписание (§3)."""
 from __future__ import annotations
 
+import logging
+
 from flipper.app.api.routes import app
 from flipper.app.scheduler import start_scheduler
+
+# Показываем наши логгеры (flipper.*) на уровне INFO — scheduler/циклы пишут туда
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 # Храним ссылку, чтобы корректно погасить расписание на shutdown
 _scheduler_state = {"scheduler": None}
