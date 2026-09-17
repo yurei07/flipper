@@ -1,0 +1,90 @@
+"""Цикл сканирования поисков: листинги -> дедуп -> запись в БД."""
+from __future__ import annotations
+
+import logging
+import random
+import time
+from datetime import datetime
+
+from flipper.app.db import get_session
+from flipper.app.models import Listing, STATUS_ACTIVE, _now
+from flipper.config import ScraperConfig
+from flipper.app.scraper.client import ScraperClient, ScraperBlocked
+
+log = logging.getLogger(__name__)
+
+
+def _cents(price: float) -> int:
+    """Евро -> центы (храним целыми, чтобы не плавать в float)."""
+    return int(round(price * 100))
+
+
+def _clean_title(title: str) -> str:
+    return title.strip()
+
+
+def _excluded(title: str, description: str, keywords: list[str]) -> bool:
+    """Фильтр стоп-слов из конфига (правило §4)."""
+    low = (title + " " + (description or "")).lower()
+    return any(k in low for k in keywords)
+
+
+def _to_listing(ad) -> Listing:
+    """Конвертация сырого объекта monkrel в нашу модель."""
+    return Listing(
+        ad_id=int(ad.id),
+        title=_clean_title(ad.title),
+        price_cents=_cents(ad.price or 0.0),
+        description=(ad.description or "")[:10000],  # не тащим гигантский текст
+        url=ad.url or "",
+        category=str(ad.category_id) if getattr(ad, "category_id", None) else None,
+        attributes_json=dict(getattr(ad, "attributes", {}) or {}),
+        image_urls_json=[i for i in (getattr(ad, "images", None) or [])],
+        location_city=getattr(ad, "city", None),
+        seller_type=getattr(ad, "poster_type", None),
+        status=STATUS_ACTIVE,
+    )
+
+
+def scan_one(cfg: ScraperConfig, client: ScraperClient) -> int:
+    """Один проход по всем поискам. Возвращает число НОВЫХ объявлений."""
+    new_count = 0
+    # Локальный сет: одно объявление может попасть в несколько поисков за проход
+    seen_this_pass: set[int] = set()
+    with get_session() as s:
+        for i, sc in enumerate(cfg.searches):
+            # Пауза между поисками — политичный ритм, избегаем троттлинга (§2)
+            if i > 0:
+                time.sleep(random.uniform(3.0, 6.0))
+            try:
+                ads = client.search(
+                    q=sc.query,
+                    max_price=sc.max_price_eur,
+                    radius_km=sc.radius_km,
+                    location=sc.location,
+                    sort_price=sc.sort_price,
+                    pages=cfg.pages_per_search,
+                )
+            except ScraperBlocked:
+                raise  # даём хендлеру уйти в cooldown
+            except Exception as e:  # один поиск упал — идём дальше, не уроним проход
+                log.warning("поиск %r упал: %s", sc.query, e)
+                continue
+
+            for ad in ads:
+                if _excluded(ad.title, ad.description or "", cfg.exclude_keywords):
+                    continue
+                ad_id = int(ad.id)
+                if ad_id in seen_this_pass:
+                    continue  # уже обработан в этом проходе (другой поиск)
+                # Дедуп: ad_id уже в БД -> просто обновляем время последнего визита
+                existing = s.get(Listing, ad_id)
+                if existing is not None:
+                    if existing.status == STATUS_ACTIVE:
+                        existing.last_seen_at = datetime.utcnow()
+                    continue
+                seen_this_pass.add(ad_id)
+                s.add(_to_listing(ad))
+                new_count += 1
+        s.commit()
+    return new_count

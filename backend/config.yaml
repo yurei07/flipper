@@ -1,0 +1,66 @@
+# ===== Скрейпер =====
+scraper:
+  poll_interval_min: 15      # 10-20 реально, с джиттером
+  pages_per_search: 2        # макс страниц на поиск (не листаем каталог целиком)
+  detail_delay_sec: [2, 6]   # пауза между запросами детальных страниц (рандом)
+  # --- Группа 1: техника с дефектом (ремонт -> перепродажа) ---
+  searches:
+    - query: "MacBook defekt"
+      max_price_eur: 150
+      radius_km: 100
+      location: null
+    - query: "iPhone defekt"
+      max_price_eur: 80
+      radius_km: 100
+    - query: "ThinkPad defekt"
+      max_price_eur: 120
+      radius_km: 100
+    - query: "Monitor defekt"
+      max_price_eur: 60
+      radius_km: 100
+    # --- Группа 2: исправная техника по капейкам (перепродажа как есть) ---
+    - query: "Laptop"
+      max_price_eur: 100
+      radius_km: 100
+      sort_price: ASCENDING
+    - query: "Handy"
+      max_price_eur: 60
+      radius_km: 100
+      sort_price: ASCENDING
+  # Титулы/описания с этими словами - отбрасывать (клиентский фильтр)
+  exclude_keywords:
+    - "abholung nur"
+
+# ===== Анализатор (LLM) =====
+analyzer:
+  provider: local            # local | groq | deepseek
+  model: "qwen3:8b"
+  temperature: 0.1
+  timeout_sec: 120
+  retries: 2
+  min_confidence: 0.7
+  ollama_base_url: "http://localhost:11434"
+
+# ===== Условия сделки =====
+deal:
+  min_margin_eur: 40         # порог для TAKE (ремонт)
+  min_margin_pct: 35
+  min_margin_eur_resale: 50  # порог для TAKE (перепродажа как есть)
+  min_margin_pct_resale: 40
+  logistics_eur: 5           # затраты на доставку при перепродаже
+  notify_only_verdicts: ["TAKE"]
+  market_factor: 0.88        # медиана цен объявлений x 0.88 (VB/торг)
+  price_cache_days: 7
+  min_price_samples: 3       # меньше - верить оценке модели
+
+# ===== REST API =====
+api:
+  api_key: ""                # заполняется из .env (FLIPPER_API_KEY)
+
+# ===== БД =====
+db:
+  url: "sqlite:///./flipper.db"
+
+# ===== Push (Phase B) =====
+notify:
+  fcm_service_account: ""
