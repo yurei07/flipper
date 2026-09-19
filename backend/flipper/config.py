@@ -89,6 +89,7 @@ class NotifyConfig:
     fcm_service_account: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    heartbeat_interval_min: int = 180
 
 
 @dataclass
@@ -181,5 +182,6 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
             telegram_chat_id=os.getenv(
                 "FLIPPER_TELEGRAM_CHAT_ID", notif.get("telegram_chat_id", "")
             ),
+            heartbeat_interval_min=notif.get("heartbeat_interval_min", 180),
         ),
     )

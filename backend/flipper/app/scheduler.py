@@ -113,6 +113,11 @@ def run_cycle(manual: bool = False) -> None:
     from flipper.app.db import init_db
     init_db(cfg.db.url)
 
+    # Периодический «пульс» в Telegram, чтобы бот не молчал часами.
+    # Вызывается на каждом цикле, внутри сам решает, пора ли (interval).
+    from flipper.app.notify.heartbeat import maybe_heartbeat
+    maybe_heartbeat(cfg.notify.heartbeat_interval_min)
+
     if in_cooldown():
         log.info("cooldown активен — цикл пропущен")
         _record("cooldown", 0, 0, 0, "")

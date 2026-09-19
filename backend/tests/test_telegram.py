@@ -53,7 +53,14 @@ def test_format_contains_key_fields():
     assert "TAKE" in text and "MacBook Air 2017" in text
     assert "70€" in text and "250€" in text
     assert "Flensburg" in text
-    assert "https://k.la/x" in text
+    assert "<b>" in text  # HTML-разметка карточки
+
+
+def test_format_reply_markup_links_listing():
+    from flipper.app.notify import telegram
+
+    mk = telegram.format_deal_reply_markup("https://k.la/x")
+    assert mk["inline_keyboard"][0][0]["url"] == "https://k.la/x"
 
 
 def test_send_message_noop_when_unconfigured(monkeypatch):
@@ -91,7 +98,7 @@ def test_notify_telegram_gates_by_verdict(monkeypatch):
     _listing()
     monkeypatch.setattr(telegram, "_configured", lambda: ("TOKEN", "42"))
     sent = []
-    monkeypatch.setattr(telegram, "send_message", lambda t: sent.append(t) or True)
+    monkeypatch.setattr(telegram, "send_message", lambda t, **k: sent.append(t) or True)
     deal = DealConfig(min_margin_eur=40, notify_only_verdicts=["TAKE"])
 
     assert telegram.notify_telegram(_analysis(verdict="MAYBE", margin_eur=90.0), deal) is False

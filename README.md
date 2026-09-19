@@ -168,6 +168,8 @@ cd ~/Work/flipper/backend
 ./.venv/bin/flipper analyze <ad_id>     # вручную разобрать конкретное объявление
 ./.venv/bin/flipper uncooldown          # сбросить часовой cooldown
 ./.venv/bin/flipper test-notify         # проверить Telegram-уведомления (§12.1)
+./.venv/bin/flipper test-heartbeat      # принудительный «пульс»-сводку (сейчас же)
+./.venv/bin/flipper reanalyze -n 10     # пере-разбор старых SKIP новой моделью (§12.3)
 ```
 
 Пример вывода `recent`:
@@ -339,6 +341,7 @@ notify:
   fcm_service_account: ""   # путь к service-account.json (или FLIPPER_FCM_SERVICE_ACCOUNT)
   telegram_bot_token: ""    # токен @BotFather (или FLIPPER_TELEGRAM_BOT_TOKEN)
   telegram_chat_id: ""      # твой chat_id (или FLIPPER_TELEGRAM_CHAT_ID)
+  heartbeat_interval_min: 180  # «пульс»-сводка каждые N минут (0 = выключено)
 ```
 
 ---
@@ -443,11 +446,29 @@ notify:
 
    Должно прийти «✅ flipper: тестовое уведомление — связь есть».
 5. `systemctl --user restart flipper`. Дальше по каждому новому `TAKE` будет приходить
-   сообщение с моделью, ценой, рынком, маржой, городом и ссылкой.
+   карточка (HTML): вердикт/маржа, модель, цена-рынок, город и **кнопка «Открыть объявление»**.
 
-Свой формат сообщения — `format_deal()` в `app/notify/telegram.py`.
+Свой формат карточки — `format_deal()` и `format_deal_reply_markup()` в `app/notify/telegram.py`.
 
-### 12.2. FCM (сложнее, нужен приложение-клиент)
+### 12.2. «Пульс» бота (heartbeat, периодический статус)
+
+Чтобы бот не молчал часами, раз в `notify.heartbeat_interval_min` (по умолчанию 180)
+шлёт в чат краткую сводку: новых объявлений, проанализировано, TAKE за период,
+активных в базе. Работает через `app/notify/heartbeat.py` (флаг `heartbeat_at`
+в таблице `settings` — чтобы не спамить). Проверка вручную:
+
+```bash
+cd ~/Work/flipper/backend && ./.venv/bin/flipper test-heartbeat
+```
+
+### 12.3. Пере-разбор старых SKIP
+
+Старые SKIP могли быть оценены слабой моделью. `flipper reanalyze -n 10` берёт SKIP
+старше суток с наибольшей маржой (ближе всех к TAKE), удаляет их анализ — ближайшие
+циклы разберут их заново уже новой моделью; если лот «перевернётся» в TAKE, придёт
+уведомление.
+
+### 12.4. FCM (сложнее, нужен приложение-клиент)
 
 Код готов (`app/notify/fcm.py`), но **включается только если задан service-account**.
 Push приходит на зарегистрированное устройство (нужно приложение-клиент с FCM).
@@ -527,7 +548,7 @@ flipper/
 │   │   ├── app/
 │   │   │   ├── analyzer/     # LLM: base, ollama, openai_compat, factory, prompt, schema
 │   │   │   ├── api/routes.py # REST API
-│   │   │   ├── notify/       # fcm.py (push), telegram.py, gate.py
+│   │   │   ├── notify/       # telegram.py, heartbeat.py, fcm.py, gate.py
 │   │   │   ├── pricing/      # market.py, parts.py
 │   │   │   ├── scraper/      # client.py, search.py, detail.py
 │   │   │   ├── main.py       # uvicorn + lifespan
@@ -579,6 +600,9 @@ cd ~/Work/flipper/backend
 - [x] **Telegram-бот** как простой канал уведомлений (вместо/вместе с FCM) — см. §12.1.
 - [x] **Облачный LLM** (Groq, free) вместо локальной Ollama — быстрее и умнее; офлайн-фолбэк остался.
 - [x] **Режим работы/отдыха** 2.5 ч / 30 мин + часовой лимит запросов + ротация ниш.
+- [x] **Радиус 15 км и 30 ниш** (catch-all «defekt» по категориям + бренды) — больше лотов.
+- [x] **«Пульс» бота** (§12.2) + пере-разбор старых SKIP (§12.3) + карточки с кнопкой (§12.1).
+- [x] **cloudflared Restart=always** — туннель сам поднимается после падения.
 - [ ] Тюнинг ниш по факту улова (смотреть, что реально даёт TAKE).
 - [ ] Постоянный cloudflare-туннель (именованный) или локальный доступ.
 - [ ] Приложение/веб-лента для удобного просмотра карточек.

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import datetime, timedelta
 from sqlalchemy import func, select
 
 from flipper.app.analyzer.factory import make_provider
@@ -67,6 +68,52 @@ def cmd_test_notify() -> None:
         return
     ok = send_message("✅ flipper: тестовое уведомление — связь есть")
     print("отправлено, проверь чат" if ok else "не удалось отправить (смотри лог)")
+
+
+def cmd_reanalyze(limit: int = 10, hours: int = 24) -> None:
+    """Пере-разбор старых SKIP новой (облачной) моделью.
+
+    Берём SKIP старше N часов с наибольшей маржой (ближе всех к TAKE),
+    удаляем их анализ — следующий цикл разберёт заново; если станет TAKE,
+    уведомление уйдёт в Telegram. Свежие SKIP не трогаем.
+    """
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    with get_session() as s:
+        rows = (
+            s.execute(
+                select(Analysis)
+                .join(Listing, Analysis.listing_id == Listing.ad_id)
+                .where(
+                    Analysis.created_at < cutoff,
+                    Analysis.verdict == "SKIP",
+                    Listing.status == STATUS_ACTIVE,
+                )
+                .order_by(Analysis.margin_eur.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        ids = [r.listing_id for r in rows]
+        for r in rows:
+            s.delete(r)
+        s.commit()
+    if not ids:
+        print("кандидатов на пере-анализ нет (старых SKIP с приличной маржой)")
+        return
+    print(
+        f"удалено SKIP-анализов: {len(ids)} — ближайшие циклы разберут их заново"
+    )
+    for i in ids:
+        print("  ", i)
+
+
+def cmd_test_heartbeat() -> None:
+    """Принудительно отправить «пульс» (сводку за 24 часа)."""
+    from flipper.app.notify.heartbeat import send_heartbeat_now
+
+    ok = send_heartbeat_now()
+    print("пульс отправлен, проверь чат" if ok else "не отправлено: telegram не настроен")
 
 
 def cmd_status(cfg) -> None:
@@ -151,6 +198,10 @@ def main() -> None:
     rec = sub.add_parser("recent")
     rec.add_argument("-n", type=int, default=15, help="сколько объявлений показать")
     sub.add_parser("test-notify", help="проверить Telegram-уведомления")
+    rean = sub.add_parser("reanalyze", help="пере-разбор старых SKIP новой моделью")
+    rean.add_argument("-n", type=int, default=10, help="сколько взять (по марже, сверху)")
+    rean.add_argument("--hours", type=int, default=24, help="старше N часов")
+    sub.add_parser("test-heartbeat", help="принудительно отправить пульс-сводку")
     args = p.parse_args()
 
     cfg = load_config()
@@ -173,6 +224,10 @@ def main() -> None:
         cmd_recent(args.n)
     elif args.cmd == "test-notify":
         cmd_test_notify()
+    elif args.cmd == "reanalyze":
+        cmd_reanalyze(limit=args.n, hours=args.hours)
+    elif args.cmd == "test-heartbeat":
+        cmd_test_heartbeat()
 
 
 if __name__ == "__main__":

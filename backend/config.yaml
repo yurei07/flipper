@@ -5,8 +5,8 @@ scraper:
   active_minutes: 150        # 2.5 часа активной работы подряд
   rest_minutes: 30           # затем 30 минут полного отдыха (API не трогаем)
   max_requests_per_hour: 70  # жёсткий часовой потолок запросов к Kleinanzeigen
-  searches_per_cycle: 8      # за цикл обходим 8 ниш из 16 (ротация) — не бомбим API
-  pages_per_search: 1        # Flensburg+5км маленький — хватает одной страницы на поиск
+  searches_per_cycle: 8      # за цикл обходим 8 ниш (ротация) — нагрузка та же, охват шире
+  pages_per_search: 1        # Фленсбург±15 км — результата не слишком много, хватает страницы
   detail_delay_sec: [2, 6]   # пауза между запросами детальных страниц (рандом)
   # --- Бюджет запросов за один цикл (защита от бана, §2) ---
   max_requests_per_cycle: 30 # общий лимит, дальше цикл заканчивается
@@ -22,87 +22,134 @@ scraper:
     # Дефектное, но с дешёвым ремонтом (дисплей/аккумулятор/чистка)
     - query: "iPhone defekt"
       max_price_eur: 80
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [173]
     - query: "MacBook defekt"
       max_price_eur: 150
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [278]
     - query: "Laptop defekt"
       max_price_eur: 100
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [278]
     - query: "Tablet defekt"
       max_price_eur: 60
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [285]
     - query: "Drucker defekt"
       max_price_eur: 40
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [225]
     - query: "Kaffeevollautomat defekt"
       max_price_eur: 100
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [176]
     # Рабочее по капейкам -> перепродажа как есть. Свежие первыми: ловим
     # недооценённые лоты в момент появления, а не вечные аксессуары по 5€.
     - query: "iPhone"
       max_price_eur: 120
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [173]
     - query: "MacBook"
       max_price_eur: 150
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [278]
     - query: "iPad"
       max_price_eur: 100
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [285]
     - query: "Laptop"
       max_price_eur: 120
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [278]
     - query: "Grafikkarte"
       max_price_eur: 150
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [225]
     - query: "PlayStation Konsole"
       max_price_eur: 100
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [279]
     # --- Фото и аудио: линзы/камеры/усилители держат цену, часто чинятся ---
     - query: "Kamera defekt"
       max_price_eur: 60
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [245]
     - query: "Kamera"
       max_price_eur: 100
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [245]
     - query: "Verstärker"
       max_price_eur: 80
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [172]
     - query: "Lautsprecher defekt"
       max_price_eur: 40
-      radius_km: 5
+      radius_km: 15
       location: "Flensburg"
       category_ids: [172]
+    # --- Catch-all «defekt»: любой бренд, всего поломанного в радиусе ---
+    # Проверено: API игнорирует category_ids для строкового запроса
+    # (все категории возвращают один набор), поэтому категории не задаём —
+    # один поиск покрывает весь сайт, а лишние дубли лишь жгут часовой лимит.
+    - query: "defekt"
+      max_price_eur: 100
+      radius_km: 15
+      location: "Flensburg"
+    # --- Бренды/устройства с быстрым оборотом ---
+    - query: "Samsung Galaxy defekt"
+      max_price_eur: 100
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [173]
+    - query: "AirPods defekt"
+      max_price_eur: 40
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [173]
+    - query: "iMac"
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [228]
+      max_price_eur: 150
+    - query: "ThinkPad"
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [278]
+      max_price_eur: 120
+    - query: "Apple Watch"
+      radius_km: 15
+      location: "Flensburg"
+      max_price_eur: 80
+    - query: "Nintendo Switch"
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [279]
+      max_price_eur: 80
+    - query: "Xbox"
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [279]
+      max_price_eur: 100
+    - query: "Drohne defekt"
+      radius_km: 15
+      location: "Flensburg"
+      max_price_eur: 80
   # Титулы/описания с этими словами - отбрасывать (клиентский фильтр)
   exclude_keywords:
     - "abholung nur"
@@ -175,3 +222,4 @@ db:
 # ===== Push (Phase B): путь к service-account.json или FLIPPER_FCM_SERVICE_ACCOUNT =====
 notify:
   fcm_service_account: ""
+  heartbeat_interval_min: 180   # каждые N минут шлём краткий статус (0 = выключено)

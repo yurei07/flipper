@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import html
 import logging
 
 import httpx
@@ -32,42 +33,53 @@ def _configured() -> tuple[str, str] | None:
 
 
 def format_deal(a: Analysis) -> str:
-    """Человекочитаемое сообщение о лоте (с ссылкой)."""
+    """Человекочитаемая HTML-карточка лота с кнопкой-ссылкой."""
     with get_session() as s:
         listing = s.get(Listing, a.listing_id)
     device = a.device_json or {}
-    model = device.get("model") or device.get("type") or f"объявление {a.listing_id}"
-    city = (listing.location_city if listing else None) or "?"
+    model = html.escape(device.get("model") or device.get("type") or f"объявление {a.listing_id}")
+    city = html.escape((listing.location_city if listing else None) or "?")
     price = (listing.price_cents / 100) if listing else 0.0
-    url = (listing.url if listing else "") or ""
     market = a.market_working_eur or 0.0
 
     icon = {"TAKE": "🟢", "MAYBE": "🟡", "SKIP": "⚪"}.get(a.verdict, "•")
     flip = "ремонт" if a.flip_type == "repair" else "перепродажа"
-    parts = f" | вложения ~{a.parts_cost_eur:.0f}€" if a.parts_cost_eur else ""
+    parts = f" · вложения ~{a.parts_cost_eur:.0f}€" if a.parts_cost_eur else ""
     lines = [
-        f"{icon} {a.verdict} +{a.margin_eur:.0f}€ ({a.margin_pct:.0f}%) · {flip}",
-        model,
-        f"Цена {price:.0f}€ | рынок {market:.0f}€{parts}",
+        f"<b>{icon} {a.verdict} +{a.margin_eur:.0f}€ ({a.margin_pct:.0f}%) · {flip}</b>",
+        f"<b>{model}</b>",
+        f"Цена <b>{price:.0f}€</b> · рынок <b>{market:.0f}€</b>{parts}",
         f"📍 {city}",
     ]
-    if url:
-        lines.append(url)
     return "\n".join(lines)
 
 
-def send_message(text: str) -> bool:
+def format_deal_reply_markup(url: str) -> dict:
+    """Inline-кнопка «Открыть объявление» (Telegram web-app не нужен)."""
+    return {"inline_keyboard": [[{"text": "Открыть объявление ↗", "url": url}]]}
+
+
+def send_message(
+    text: str,
+    parse_mode: str | None = "HTML",
+    reply_markup: dict | None = None,
+) -> bool:
     """Шлёт текст в настроенный чат. False — если канал не настроен/ошибка."""
     cfg = _configured()
     if cfg is None:
         return False
     token, chat_id = cfg
+    payload: dict = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": False,
+    }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     try:
-        resp = httpx.post(
-            _API.format(token=token),
-            json={"chat_id": chat_id, "text": text, "disable_web_page_preview": False},
-            timeout=10,
-        )
+        resp = httpx.post(_API.format(token=token), json=payload, timeout=10)
         resp.raise_for_status()
         return True
     except Exception as e:
@@ -79,7 +91,13 @@ def notify_telegram(a: Analysis, deal: DealConfig) -> bool:
     """Шлёт уведомление о лоте, если он проходит общие условия (§9)."""
     if not should_notify(a, deal):
         return False
-    if _configured() is None:
+    cfg = _configured()
+    if cfg is None:
         log.debug("telegram не настроен — пропуск")
         return False
-    return send_message(format_deal(a))
+    with get_session() as s:
+        listing = s.get(Listing, a.listing_id)
+    url = (listing.url if listing else "") or ""
+    return send_message(
+        format_deal(a), parse_mode="HTML", reply_markup=format_deal_reply_markup(url)
+    )
