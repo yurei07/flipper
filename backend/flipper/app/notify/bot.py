@@ -20,6 +20,8 @@ _API = "https://api.telegram.org/bot{token}/getUpdates"
 
 _HELP = (
     "<b>Команды flipper:</b>\n"
+    "/recent — последние лоты (с id)\n"
+    "/deal &lt;id&gt; — полный вердикт по id\n"
     "/status — сводка по базе\n"
     "/stats — статистика за 24 ч\n"
     "/pulse — принудительный «пульс» сейчас\n"
@@ -54,6 +56,106 @@ def _status_text() -> str:
     )
 
 
+def _recent_text(n: int) -> str:
+    import html
+
+    from sqlalchemy import select
+
+    from flipper.app.db import get_session
+    from flipper.app.models import Analysis, Listing
+
+    with get_session() as s:
+        listings = (
+            s.execute(select(Listing).order_by(Listing.last_seen_at.desc()).limit(n))
+            .scalars()
+            .all()
+        )
+        if not listings:
+            return "объявлений пока нет"
+        latest: dict[int, Analysis] = {}
+        for row in (
+            s.execute(select(Analysis).order_by(Analysis.listing_id, Analysis.created_at.desc()))
+            .scalars()
+            .all()
+        ):
+            latest.setdefault(row.listing_id, row)
+
+    lines = ["<b>Последние лоты:</b>"]
+    icons = {"TAKE": "🟢", "MAYBE": "🟡", "SKIP": "⚪"}
+    for l in listings:
+        a = latest.get(l.ad_id)
+        city = html.escape(l.location_city or "?")
+        price = l.price_cents / 100
+        if a:
+            icon = icons.get(a.verdict, "•")
+            m = f"{a.verdict} +{a.margin_eur:.0f}€"
+        else:
+            icon = "⏳"
+            m = "не разобран"
+        when = l.last_seen_at.strftime("%d.%m %H:%M")
+        lines.append(
+            f"{icon} <b>{m}</b> · {price:.0f}€ · {city}\n"
+            f"<code>{l.ad_id}</code> · <a href=\"{html.escape(l.url)}\">{when}</a>"
+        )
+    lines.append("\nДетали: /deal &lt;id&gt;")
+    return "\n".join(lines)
+
+
+def _deal_text(ad_id: int) -> str:
+    import html
+
+    from sqlalchemy import select
+
+    from flipper.app.db import get_session
+    from flipper.app.models import Analysis, Listing
+
+    with get_session() as s:
+        listing = s.get(Listing, int(ad_id))
+        if listing is None:
+            return f"лота <code>{ad_id}</code> нет в базе"
+        a = (
+            s.execute(
+                select(Analysis)
+                .where(Analysis.listing_id == listing.ad_id)
+                .order_by(Analysis.created_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        title = html.escape(listing.title)
+        city = html.escape(listing.location_city or "?")
+        price = listing.price_cents / 100
+
+    head = [f"<b>{title}</b>", f"📍 {city} · <b>{price:.0f}€</b>"]
+    if a is None:
+        head.append("\n⏳ ещё не проанализирован")
+        return "\n".join(head)
+
+    device = a.device_json or {}
+    model = html.escape(device.get("model") or device.get("type") or title)
+    icon = {"TAKE": "🟢", "MAYBE": "🟡", "SKIP": "⚪"}.get(a.verdict, "•")
+    flip = "ремонт" if a.flip_type == "repair" else "перепродажа"
+    parts = f"~{a.parts_cost_eur:.0f}€" if a.parts_cost_eur else "—"
+    details = [
+        "<b>" + f"{icon} {a.verdict} +{a.margin_eur:.0f}€ ({a.margin_pct:.0f}%) · {flip}" + "</b>",
+        f"<b>{model}</b>",
+        f"Цена <b>{price:.0f}€</b> · рынок <b>{a.market_working_eur or 0:.0f}€</b> · вложения {parts}",
+        f"Уверенность {a.confidence:.2f} · {html.escape(a.model_used or '?')} · {a.created_at:%d.%m %H:%M}",
+    ]
+    if a.pros_ru_json:
+        details.append(
+            "➕ Плюсы: " + html.escape("; ".join(a.pros_ru_json))[:400]
+        )
+    if a.cons_ru_json:
+        details.append(
+            "➖ Минусы: " + html.escape("; ".join(a.cons_ru_json))[:400]
+        )
+    if a.action_ru:
+        details.append("🎯 " + html.escape(a.action_ru)[:400])
+    return "\n".join(head + [""] + details)
+
+
 def _stats_text() -> str:
     from datetime import datetime, timedelta
 
@@ -65,7 +167,10 @@ def _stats_text() -> str:
 
 def handle_command(text: str, chat_id: int) -> None:
     """Разбирает команду и отвечает в тот же чат. Незнакомое — игнор."""
-    cmd = (text or "").strip().lower()
+    parts = (text or "").strip().lower().split()
+    if not parts:
+        return
+    cmd = parts[0]
     if cmd in ("/start", "/help", "help"):
         _reply(chat_id, _HELP)
     elif cmd == "/status":
@@ -75,6 +180,16 @@ def handle_command(text: str, chat_id: int) -> None:
     elif cmd == "/pulse":
         ok = send_heartbeat_now()
         _reply(chat_id, "✅ пульс отправлен" if ok else "❌ telegram не настроен")
+    elif cmd == "/recent":
+        n = 10
+        if len(parts) > 1 and parts[1].isdigit():
+            n = min(int(parts[1]), 20)
+        _reply(chat_id, _recent_text(n))
+    elif cmd == "/deal":
+        if len(parts) < 2 or not parts[1].isdigit():
+            _reply(chat_id, "как: <code>/deal 1234567890</code> — id из /recent")
+            return
+        _reply(chat_id, _deal_text(int(parts[1])))
 
 
 def apply_updates(updates: list[dict], offset: int) -> int:
