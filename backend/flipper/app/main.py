@@ -20,11 +20,15 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app):
-    """Старт: поднимаем расписание циклов. Стоп: корректно гасим его."""
+    """Старт: расписание циклов + Telegram-команды. Стоп: корректно их гасим."""
     scheduler = start_scheduler()
+    from flipper.app.notify.bot import start_bot_thread
+
+    stop_bot = start_bot_thread()
     try:
         yield
     finally:
+        stop_bot.set()
         try:
             scheduler.shutdown(wait=False)
         except Exception:

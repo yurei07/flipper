@@ -63,14 +63,15 @@ def send_message(
     text: str,
     parse_mode: str | None = "HTML",
     reply_markup: dict | None = None,
+    chat_id: int | None = None,
 ) -> bool:
-    """Шлёт текст в настроенный чат. False — если канал не настроен/ошибка."""
+    """Шлёт текст (по умолчанию — в настроенный чат). False — канал не настроен/ошибка."""
     cfg = _configured()
     if cfg is None:
         return False
-    token, chat_id = cfg
+    token, chat_id_cfg = cfg
     payload: dict = {
-        "chat_id": chat_id,
+        "chat_id": chat_id if chat_id is not None else chat_id_cfg,
         "text": text,
         "disable_web_page_preview": False,
     }
