@@ -49,6 +49,8 @@ class Listing(Base):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     status: Mapped[str] = mapped_column(String(10), default=STATUS_ACTIVE)
+    # Цена на момент последнего уведомления пользователя (для price-drop алертов)
+    last_notified_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Analysis(Base):

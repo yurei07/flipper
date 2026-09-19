@@ -90,6 +90,7 @@ class NotifyConfig:
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     heartbeat_interval_min: int = 180
+    price_drop_pct: int = 15  # % падения цены на уведомлённом лоте для повторного алерта
 
 
 @dataclass
@@ -183,5 +184,6 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
                 "FLIPPER_TELEGRAM_CHAT_ID", notif.get("telegram_chat_id", "")
             ),
             heartbeat_interval_min=notif.get("heartbeat_interval_min", 180),
+            price_drop_pct=notif.get("price_drop_pct", 15),
         ),
     )

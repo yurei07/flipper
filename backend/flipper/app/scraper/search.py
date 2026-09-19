@@ -123,6 +123,11 @@ def scan_one(cfg: ScraperConfig, client: ScraperClient) -> int:
                 if existing is not None:
                     if existing.status == STATUS_ACTIVE:
                         existing.last_seen_at = datetime.utcnow()
+                        # Живём ценой «сейчас», а не ценой первого входа:
+                        # падение цены = новый шанс (price-drop алерты в notify/).
+                        # Цена None (торг «VB») ценой не считается.
+                        if ad.price:
+                            existing.price_cents = _cents(ad.price)
                     continue
                 seen_this_pass.add(ad_id)
                 s.add(_to_listing(ad))

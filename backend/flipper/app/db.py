@@ -1,7 +1,7 @@
 """Движок БД, сессии и инициализация схемы."""
 from __future__ import annotations
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from flipper.app.models import Base
@@ -9,6 +9,16 @@ from flipper.app.models import Base
 # Ленивый singleton — engine создаётся при первом обращении (по конфигу)
 _engine = None
 _SessionLocal: sessionmaker[Session] | None = None
+
+
+def _migrate_sqlite(engine) -> None:
+    """Мини-миграции для sqlite без alembic (create_all новых колонок не делает)."""
+    with engine.begin() as conn:
+        cols = {r[1] for r in conn.execute(text("PRAGMA table_info(listings)"))}
+        if "last_notified_price_cents" not in cols:
+            conn.execute(
+                text("ALTER TABLE listings ADD COLUMN last_notified_price_cents INTEGER")
+            )
 
 
 def init_db(url: str) -> None:
@@ -28,6 +38,8 @@ def init_db(url: str) -> None:
         kwargs.setdefault("connect_args", {})["check_same_thread"] = False
     _engine = create_engine(url, **kwargs)
     Base.metadata.create_all(_engine)
+    if url.startswith("sqlite"):
+        _migrate_sqlite(_engine)
     _SessionLocal = sessionmaker(bind=_engine, autoflush=False)
 
 

@@ -160,6 +160,10 @@ def run_cycle(manual: bool = False) -> None:
             limit=cfg.scraper.analyze_per_cycle,
             max_seconds=cfg.scraper.poll_interval_min * 60 * 0.6,
         )
+        # Слежение за ценой: лот уже уведомлён, продавец скинул цену -> новый шанс.
+        # Не ходит ни к LLM, ни к market API — только БД+Telegram.
+        from flipper.app.notify.pricedrop import check_price_drops
+        drops = check_price_drops(cfg.deal, cfg.notify)
         log.info(
             "цикл готов: новых=%d, проанализировано=%d, запросов=%d/%d",
             new,
@@ -167,6 +171,8 @@ def run_cycle(manual: bool = False) -> None:
             client.requests_used,
             cfg.scraper.max_requests_per_cycle,
         )
+        if drops:
+            log.info("повторных уведомлений о падении цены: %d", drops)
         _finish(run_id, "ok", new, len(analyses), client.requests_used, "")
     except ScraperBlocked as e:
         # Дошли до бюджета или капчи -> реально ждём час (правило §2.5)

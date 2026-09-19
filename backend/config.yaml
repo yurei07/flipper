@@ -223,3 +223,4 @@ db:
 notify:
   fcm_service_account: ""
   heartbeat_interval_min: 180   # каждые N минут шлём краткий статус (0 = выключено)
+  price_drop_pct: 15            # % падения цены на уведомлённом лоте -> повторный алерт

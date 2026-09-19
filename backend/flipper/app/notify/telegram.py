@@ -98,6 +98,14 @@ def notify_telegram(a: Analysis, deal: DealConfig) -> bool:
     with get_session() as s:
         listing = s.get(Listing, a.listing_id)
     url = (listing.url if listing else "") or ""
-    return send_message(
+    ok = send_message(
         format_deal(a), parse_mode="HTML", reply_markup=format_deal_reply_markup(url)
     )
+    if ok:
+        # Запоминаем цену, по которой уведомили: падение ниже = повторный алерт.
+        with get_session() as s:
+            row = s.get(Listing, a.listing_id)
+            if row is not None:
+                row.last_notified_price_cents = row.price_cents
+                s.commit()
+    return ok
