@@ -23,6 +23,14 @@ from flipper.config import DealConfig, NotifyConfig
 log = logging.getLogger(__name__)
 
 
+def notify_push_available() -> bool:
+    """Есть ли хоть одна Web Push подписка (PWA может работать без Telegram)."""
+    from flipper.app.models import PushSubscription
+
+    with get_session() as s:
+        return s.query(PushSubscription).count() > 0
+
+
 def _latest_analysis(listing_id: int) -> Analysis | None:
     """Последний (актуальный) анализ лота."""
     with get_session() as s:
@@ -82,7 +90,7 @@ def format_drop(a: Analysis, old_price_eur: float, new_price_eur: float) -> str:
 
 def check_price_drops(deal: DealConfig, notify: NotifyConfig) -> int:
     """Разовое сканирование уведомлённых лотов на падение цены. Возвращает число алертов."""
-    if not notify.telegram_bot_token:
+    if not notify.telegram_bot_token and not notify_push_available():
         return 0
     threshold = notify.price_drop_pct
     with get_session() as s:
@@ -113,11 +121,23 @@ def check_price_drops(deal: DealConfig, notify: NotifyConfig) -> int:
         a.margin_eur = margin
         a.margin_pct = pct
         a.verdict = verdict
+        notified = False
         if send_message(
             format_drop(a, l.last_notified_price_cents / 100, l.price_cents / 100),
             parse_mode="HTML",
             reply_markup=format_deal_reply_markup(l.url or ""),
         ):
+            notified = True
+        from flipper.app.notify.push import send_push
+
+        with get_session() as s:
+            sent_push = send_push(
+                s,
+                f"🔻 цена упала: {l.title[:60]}",
+                f"было {l.last_notified_price_cents / 100:.0f}€ → {l.price_cents / 100:.0f}€ (−{drop:.0f}%): +{margin:.0f}€",
+                l.url or None,
+            )
+        if notified or sent_push:
             sent += 1
             with get_session() as s:
                 row = s.get(Listing, l.ad_id)

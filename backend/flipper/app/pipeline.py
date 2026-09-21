@@ -12,6 +12,7 @@ from flipper.app.db import get_session
 from flipper.app.models import Analysis, Listing
 from flipper.app.notify.fcm import maybe_notify
 from flipper.app.notify.telegram import notify_telegram
+from flipper.app.notify.push import notify_push
 from flipper.app.pricing.market import market_price_eur, model_key
 from flipper.app.pricing.parts import get_parts_cost
 from flipper.app.scraper.client import ScraperClient, ScraperBlocked
@@ -192,6 +193,7 @@ def run_on_listing(
         if notify:
             maybe_notify(analysis, deal_cfg)       # FCM (если настроен)
             notify_telegram(analysis, deal_cfg)    # Telegram (если настроен)
+            notify_push(analysis, deal_cfg)        # Web Push PWA (подписки)
         return analysis
 
 

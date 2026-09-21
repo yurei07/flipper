@@ -89,6 +89,18 @@ class PriceSample(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class PushSubscription(Base):
+    """Web-Push подписка браузера/телефона (PWA)."""
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    endpoint: Mapped[str] = mapped_column(String(500), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200), default="")
+    auth: Mapped[str] = mapped_column(String(100), default="")
+    send_maybe: Mapped[bool] = mapped_column(Boolean, default=False)  # дублировать и MAYBE
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 class UserAction(Base):
     """Действия пользователя в приложении (saved/ignored/dismissed)."""
     __tablename__ = "user_actions"

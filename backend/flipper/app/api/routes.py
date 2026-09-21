@@ -1,6 +1,8 @@
 """FastAPI-приложение: health + базовые REST-роуты (§8, базовый минимум для Phase A)."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -8,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flipper.app.db import get_session
-from flipper.app.models import Analysis, DeviceToken, Listing, Search, UserAction
+from flipper.app.models import Analysis, DeviceToken, Listing, PushSubscription, Search, UserAction
 from flipper.config import Config, load_config
 from flipper.app.db import init_db
 
@@ -20,6 +22,15 @@ class RegisterBody(BaseModel):
 
     fcm_token: str = Field(min_length=10, max_length=4096)
     platform: str = "android"
+
+
+class SubscribeBody(BaseModel):
+    """Тело подписки Web Push (браузер/телефон PWA)."""
+
+    endpoint: str = Field(min_length=10, max_length=1000)
+    p256dh: str = Field(min_length=10, max_length=300)
+    auth: str = Field(min_length=1, max_length=200)
+    send_maybe: bool = False
 
 
 class SearchBody(BaseModel):
@@ -180,6 +191,60 @@ def make_app(lifespan=None) -> FastAPI:
         rows = s.execute(select(DeviceToken)).scalars().all()
         return [{"token": t.token, "platform": t.platform} for t in rows]
 
+    @app.get("/api/v1/push/keys")
+    def push_keys(_=Depends(require_key)):
+        """Публичный VAPID-ключ для подписки в браузере."""
+        from flipper.app.notify.push import get_vapid_keys
+
+        _, public_key = get_vapid_keys()
+        return {"public_key": public_key}
+
+    @app.post("/api/v1/push/subscribe")
+    def push_subscribe(
+        body: SubscribeBody,
+        _=Depends(require_key),
+        s: Session = Depends(get_session),
+    ):
+        """Сохранить Web Push подписку (заменяет при изменении настроек)."""
+        existing = s.query(PushSubscription).filter(
+            PushSubscription.endpoint == body.endpoint
+        ).first()
+        if existing:
+            existing.send_maybe = body.send_maybe
+            existing.p256dh = body.p256dh
+            existing.auth = body.auth
+        else:
+            s.add(
+                PushSubscription(
+                    endpoint=body.endpoint,
+                    p256dh=body.p256dh,
+                    auth=body.auth,
+                    send_maybe=body.send_maybe,
+                )
+            )
+        s.commit()
+        return {"ok": True}
+
+    @app.delete("/api/v1/push/unsubscribe")
+    def push_unsubscribe(
+        endpoint: str,
+        _=Depends(require_key),
+        s: Session = Depends(get_session),
+    ):
+        s.query(PushSubscription).filter(PushSubscription.endpoint == endpoint).delete()
+        s.commit()
+        return {"ok": True}
+
+    @app.get("/api/v1/stats")
+    def stats(_=Depends(require_key), s: Session = Depends(get_session)):
+        """Сводка для футера/статуса приложения."""
+        total = s.query(Listing).count()
+        by = {
+            v: s.query(Analysis).filter(Analysis.verdict == v).count()
+            for v in ("TAKE", "MAYBE", "SKIP")
+        }
+        return {"total_listings": total, "verdicts": by}
+
     @app.post("/api/v1/analyze/{ad_id}")
     def reanalyze(ad_id: int, _=Depends(require_key)):
         """Ручной (пере)анализ объявления — cooldown соблюдается. Пушей не шлёт."""
@@ -251,6 +316,26 @@ def make_app(lifespan=None) -> FastAPI:
         s.delete(r)
         s.commit()
         return {"ok": True}
+
+    _dist = Path(__file__).resolve().parents[3].parent / "frontend" / "dist"
+    if _dist.exists():
+        from fastapi.responses import FileResponse
+        from fastapi.staticfiles import StaticFiles
+
+        _assets = _dist / "assets"
+        if _assets.exists():
+            app.mount("/assets", StaticFiles(directory=_assets), name="assets")
+
+        @app.get("/")
+        def spa_root():
+            return FileResponse(_dist / "index.html")
+
+        @app.get("/{full_path:path}")
+        def spa(full_path: str):
+            candidate = (_dist / full_path).resolve()
+            if _dist in candidate.parents and candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(_dist / "index.html")
 
     return app
 

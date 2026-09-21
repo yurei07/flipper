@@ -1,0 +1,12 @@
+{
+  "name": "flipper — сделки на Kleinanzeigen",
+  "short_name": "flipper",
+  "description": "Лента выгодных лотов с анализом ИИ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#238636",
+  "icons": [
+    { "src": "/icons.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
