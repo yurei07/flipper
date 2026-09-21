@@ -87,6 +87,25 @@ export const api = {
 }
 
 export const eur = (c: number) => (c / 100).toFixed(0) + '€'
+
+export function downloadCsv(verdict: string, minMargin: number) {
+  const p = new URLSearchParams()
+  if (verdict) p.set('verdict', verdict)
+  if (minMargin) p.set('min_margin', String(minMargin))
+  fetch(`/api/v1/export.csv?${p}`, { headers: { Authorization: `Bearer ${getKey()}` } })
+    .then((r) => {
+      if (!r.ok) throw new Error(String(r.status))
+      return r.blob()
+    })
+    .then((b) => {
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(b)
+      a.download = `flipper-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    })
+    .catch(() => {})
+}
 export const VERDICT_ICON: Record<string, string> = { TAKE: '🟢', MAYBE: '🟡', SKIP: '⚪' }
 export const VERDICT_TEXT: Record<string, string> = {
   TAKE: 'брать',

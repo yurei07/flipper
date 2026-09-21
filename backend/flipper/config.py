@@ -39,6 +39,8 @@ class ScraperConfig:
     max_requests_per_cycle: int = 25
     analyze_per_cycle: int = 5
     enrich_per_cycle: int = 5
+    reanalyze_maybe_days: float = 3.0     # MAYBE старше N дней пересматриваем заново
+    reanalyze_maybe_per_cycle: int = 2    # сколько задежавшихся MAYBE за цикл
     searches: list[SearchConfig] = field(default_factory=list)
     exclude_keywords: list[str] = field(default_factory=list)
     exclude_title_keywords: list[str] = field(default_factory=list)
@@ -142,6 +144,8 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
             max_requests_per_cycle=scr.get("max_requests_per_cycle", 25),
             analyze_per_cycle=scr.get("analyze_per_cycle", 5),
             enrich_per_cycle=scr.get("enrich_per_cycle", 5),
+            reanalyze_maybe_days=scr.get("reanalyze_maybe_days", 3.0),
+            reanalyze_maybe_per_cycle=scr.get("reanalyze_maybe_per_cycle", 2),
             searches=searches,
             exclude_keywords=scr.get("exclude_keywords", []),
             exclude_title_keywords=scr.get("exclude_title_keywords", []),

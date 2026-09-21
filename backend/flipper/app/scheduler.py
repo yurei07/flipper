@@ -139,7 +139,7 @@ def run_cycle(manual: bool = False) -> None:
         from flipper.app.scraper.client import ScraperClient
         from flipper.app.scraper.detail import enrich_new
         from flipper.app.scraper.search import scan_one
-        from flipper.app.pipeline import analyze_pending
+        from flipper.app.pipeline import analyze_pending, prune_stale_maybes
 
         client = ScraperClient(
             delay_range=cfg.scraper.detail_delay_sec,
@@ -160,6 +160,14 @@ def run_cycle(manual: bool = False) -> None:
             limit=cfg.scraper.analyze_per_cycle,
             max_seconds=cfg.scraper.poll_interval_min * 60 * 0.6,
         )
+        # MAYBE «завис» > N дней: убираем анализ — цикл пересмотрит лот заново
+        # (цена могла упасть -> вердикт стал TAKE; снова уведомим).
+        pruned = prune_stale_maybes(
+            cfg.scraper.reanalyze_maybe_days,
+            limit=cfg.scraper.reanalyze_maybe_per_cycle,
+        )
+        if pruned:
+            log.info("на пересмотр MAYBE: %d лотов (последующие циклы)", pruned)
         # Слежение за ценой: лот уже уведомлён, продавец скинул цену -> новый шанс.
         # Не ходит ни к LLM, ни к market API — только БД+Telegram.
         from flipper.app.notify.pricedrop import check_price_drops

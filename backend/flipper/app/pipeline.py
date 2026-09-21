@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
+
 from sqlalchemy import select
 
 from flipper.app.analyzer.analyze import analyze_listing
@@ -195,6 +197,38 @@ def run_on_listing(
             notify_telegram(analysis, deal_cfg)    # Telegram (если настроен)
             notify_push(analysis, deal_cfg)        # Web Push PWA (подписки)
         return analysis
+
+
+def prune_stale_maybes(days: float, limit: int = 2) -> int:
+    """Удаляет залежавшиеся MAYBE-анализы, чтобы цикл пересмотрел их заново.
+
+    MAYBE — «посмотреть, но цена кусается»: цена упала -> рынок понял лучше ->
+    вердикт мог смениться (в т.ч. на TAKE, и снова уведомим). Понемногу за цикл,
+    чтобы не жечь LLM-бюджет. Возвращает число удалённых анализов.
+    """
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    with get_session() as s:
+        rows = (
+            s.execute(
+                select(Analysis)
+                .join(Listing, Analysis.listing_id == Listing.ad_id)
+                .where(
+                    Analysis.created_at < cutoff,
+                    Analysis.verdict == "MAYBE",
+                    Listing.status == "active",
+                )
+                .order_by(Analysis.margin_eur.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        if rows:
+            for r in rows:
+                s.delete(r)
+            s.commit()
+            return len(rows)
+    return 0
 
 
 def _pending_query(s, analyzed_ids: set, limit: int) -> list[Listing]:

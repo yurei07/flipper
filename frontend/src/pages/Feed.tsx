@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, eur, VERDICT_ICON, VERDICT_TEXT, type FeedItem } from '../lib/api'
+import { api, downloadCsv, eur, VERDICT_ICON, VERDICT_TEXT, type FeedItem } from '../lib/api'
 
 const PAGE = 40
 
@@ -70,6 +70,7 @@ export function Feed() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') load(0) }} />
+        <button title="Скачать CSV текущего списка" onClick={() => downloadCsv(verdict, minMargin)}>⬇ CSV</button>
         {stats && <span className="stats">📦 {stats.total_listings} · 🟢{stats.verdicts.TAKE ?? 0} 🟡{stats.verdicts.MAYBE ?? 0}</span>}
       </div>
 

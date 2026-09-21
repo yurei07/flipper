@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -234,6 +235,58 @@ def make_app(lifespan=None) -> FastAPI:
         s.query(PushSubscription).filter(PushSubscription.endpoint == endpoint).delete()
         s.commit()
         return {"ok": True}
+
+    @app.get("/api/v1/export.csv")
+    def export_csv(
+        verdict: str | None = None,
+        _=Depends(require_key),
+        s: Session = Depends(get_session),
+    ):
+        """CSV всех анализов (для учёта сделок в Excel/Google Sheets)."""
+        import csv
+        import io
+
+        q = (
+            select(Analysis)
+            .join(Listing, Analysis.listing_id == Listing.ad_id)
+            .order_by(Analysis.created_at.desc())
+        )
+        if verdict:
+            q = q.where(Analysis.verdict == verdict)
+        rows = s.execute(q).scalars().all()
+        listings = {
+            l.ad_id: l
+            for l in s.execute(select(Listing)).scalars().all()
+        }
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(
+            ["дата", "id", "название", "вердикт", "тип", "маржа_eur", "маржа_pct",
+             "цена_eur", "рынок_eur", "запчасти_eur", "город", "url"]
+        )
+        for a in rows:
+            l = listings.get(a.listing_id)
+            w.writerow(
+                [
+                    a.created_at.strftime("%Y-%m-%d") if a.created_at else "",
+                    a.listing_id,
+                    l.title if l else "",
+                    a.verdict,
+                    a.flip_type,
+                    f"{a.margin_eur:.2f}",
+                    f"{a.margin_pct:.1f}",
+                    f"{(l.price_cents / 100) if l else '':.2f}",
+                    f"{a.market_working_eur:.0f}" if a.market_working_eur else "",
+                    f"{a.parts_cost_eur:.2f}",
+                    l.location_city if l else "",
+                    l.url if l else "",
+                ]
+            )
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="flipper.csv"'},
+        )
 
     @app.get("/api/v1/stats")
     def stats(_=Depends(require_key), s: Session = Depends(get_session)):

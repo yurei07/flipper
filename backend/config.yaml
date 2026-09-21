@@ -12,6 +12,10 @@ scraper:
   max_requests_per_cycle: 30 # общий лимит, дальше цикл заканчивается
   analyze_per_cycle: 4       # сколько объявлений анализировать за цикл (лимит TPM Groq)
   enrich_per_cycle: 3        # сколько деталей добирать за цикл
+  # MAYBE-лоты старше N дней пересматриваем заново (цена могла упасть -> TAKE),
+  # по reanalyze_maybe_per_cycle штук за цикл, чтобы не жечь TPM.
+  reanalyze_maybe_days: 3
+  reanalyze_maybe_per_cycle: 2
   # --- Широкие ниши: и "чинится легко", и "рабочее по капейкам" ---
   # LLM сам решает flip_type (ремонт vs перепродажа) по описанию.
   # category_ids — узкая категория Kleinanzeigen (ID из каталога библиотеки):
