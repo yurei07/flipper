@@ -19,6 +19,11 @@ def _migrate_sqlite(engine) -> None:
             conn.execute(
                 text("ALTER TABLE listings ADD COLUMN last_notified_price_cents INTEGER")
             )
+        acols = {r[1] for r in conn.execute(text("PRAGMA table_info(analyses)"))}
+        if "market_estimated" not in acols:
+            conn.execute(
+                text("ALTER TABLE analyses ADD COLUMN market_estimated BOOLEAN DEFAULT 0")
+            )
 
 
 def init_db(url: str) -> None:

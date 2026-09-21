@@ -52,21 +52,73 @@ scraper:
       category_ids: [176]
     # Рабочее по капейкам -> перепродажа как есть. Свежие первыми: ловим
     # недооценённые лоты в момент появления, а не вечные аксессуары по 5€.
+    # sort_price ASCENDING — самые дешёвые (недооценённые) показываются первыми.
     - query: "iPhone"
+      max_price_eur: 200
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [173]
+      sort_price: "ASCENDING"
+    - query: "MacBook"
+      max_price_eur: 250
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [278]
+      sort_price: "ASCENDING"
+    - query: "iPad"
+      max_price_eur: 150
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [285]
+      sort_price: "ASCENDING"
+    - query: "iMac"
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [228]
+      max_price_eur: 250
+      sort_price: "ASCENDING"
+    - query: "ThinkPad"
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [278]
+      max_price_eur: 200
+      sort_price: "ASCENDING"
+    - query: "Samsung Galaxy"
+      max_price_eur: 150
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [173]
+      sort_price: "ASCENDING"
+    - query: "Google Pixel"
+      max_price_eur: 150
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [173]
+      sort_price: "ASCENDING"
+    - query: "OnePlus"
       max_price_eur: 120
       radius_km: 15
       location: "Flensburg"
       category_ids: [173]
-    - query: "MacBook"
+      sort_price: "ASCENDING"
+    - query: "Lenovo"
       max_price_eur: 150
       radius_km: 15
       location: "Flensburg"
       category_ids: [278]
-    - query: "iPad"
+      sort_price: "ASCENDING"
+    - query: "Monitor"
       max_price_eur: 100
       radius_km: 15
       location: "Flensburg"
-      category_ids: [285]
+      category_ids: [225]
+      sort_price: "ASCENDING"
+    - query: "Fernseher"
+      max_price_eur: 100
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [168]
+      sort_price: "ASCENDING"
     - query: "Laptop"
       max_price_eur: 120
       radius_km: 15
@@ -151,8 +203,32 @@ scraper:
       location: "Flensburg"
       max_price_eur: 80
   # Титулы/описания с этими словами - отбрасывать (клиентский фильтр)
+  # Catch-all «defekt» тянет весь сайт (API игнорирует категории для строковых
+  # запросов) — этим фильтром отсекаем заведомо не-технику: велосипеды/мебель/
+  # детское/одежда/авто-хлам, чтобы не жечь анализ на велосипед.
   exclude_keywords:
     - "abholung nur"
+    - "fahrrad"
+    - "mountainbike"
+    - "e-bike"
+    - "ebike"
+    - "roller"
+    - "scooter"
+    - "kinderwagen"
+    - "spielzeug"
+    - "puppen"
+    - "kleidung"
+    - "hose"
+    - "schuhe"
+    - "jacke"
+    - "möbel"
+    - "sofa"
+    - "schrank"
+    - "bett"
+    - "stuhl"
+    - "tisch"
+    - "küche"
+    - "kinder"
   # Только по заголовку: аксессуары, а не техника (чехлы/плёнки/кабели)
   exclude_title_keywords:
     - "hülle"

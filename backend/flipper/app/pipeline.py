@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from flipper.app.analyzer.analyze import analyze_listing
 from flipper.app.analyzer.base import Provider
-from flipper.app.analyzer.schema import AnalysisResult, Verdict
+from flipper.app.analyzer.schema import AnalysisResult, FlipType, Repairability, Verdict
 from flipper.app.db import get_session
 from flipper.app.models import Analysis, Listing
 from flipper.app.notify.fcm import maybe_notify
@@ -38,6 +38,48 @@ def _hard_flags_hit(res: AnalysisResult) -> list[str]:
         if term in text:
             hits.append(term)
     return hits
+
+
+# Маркеры дефекта в заголовке/описании: если они есть — сделка это ремонт (repair),
+# даже если модель ошибочно решила, что устройство «рабочее» и его можно просто
+# продать. Модель путает «чинить» с «перепродать» — здесь это чиним детерминированно.
+_DEFECT_MARKERS = (
+    "defekt", "kaputt", "bastler", "reparatur", "reparieren", "repararbedürftig",
+    "wasserschaden", "kein bild", "keine funktion", "ohne funktion", "ohne bild",
+    "nicht eingeschaltet", "startet nicht", "eingeschaltet", "ersatzteil",
+    "as-is", "as is", "for parts", "not working", "broken", "nonfunctional",
+    "zum schlachten", "teileträger", "nur als bastelprojekt", "display defekt",
+)
+
+
+def _normalize_flip(res: AnalysisResult, listing) -> None:
+    """Заставляет flip_type совпадать с фактом: есть дефект -> repair, нет -> resale.
+
+    Мутирует res: ставь flip_type, чистит fault/repairability для resale, добирает
+    ремонтные данные, если модели их не дала.
+    """
+    combined = f"{listing.title} {listing.description or ''}".lower()
+    defect = any(m in combined for m in _DEFECT_MARKERS)
+    has_fault = bool(res.fault and (res.fault.summary_ru or res.fault.water_damage or res.fault.locked))
+
+    if (defect or has_fault) and res.flip_type.value != "repair":
+        res.flip_type = FlipType.repair
+        log.info("дефект в лоте %s — перевод в repair", listing.ad_id)
+        if res.repairability is None:
+            res.repairability = Repairability(
+                score=3,
+                home_repairable=True,
+                parts_cost_eur=float(res.deal.repair_cost_eur or 0),
+                what_needs_fixing_ru=(
+                    f"требуется ремонт: {res.fault.summary_ru}" if res.fault else "недостаточно данных"
+                ),
+                explanation_ru="модель не описала ремонт — затраты оценочные",
+            )
+    elif res.flip_type.value == "repair" and not defect and not has_fault:
+        res.flip_type = FlipType.resale
+        res.fault = None
+        res.repairability = None
+        log.info("дефекта в лоте %s нет — перевод в resale", listing.ad_id)
 
 
 def recompute_verdict(
@@ -85,10 +127,12 @@ def run_on_listing(
             log.warning("листинг %s не найден", listing_id)
             return None
         res = analyze_listing(listing, provider)
+        _normalize_flip(res, listing)
 
         # --- §7: реальная рыночная цена (перезаписываем модель) ---
         key = model_key(res.device.model_dump())
         real = market_price_eur(key, scraper, deal_cfg)
+        estimated = real[1]
         if real[0] is not None:
             res.deal.market_working_eur = real[0]
         log.info(
@@ -116,6 +160,12 @@ def run_on_listing(
             verdict = Verdict.SKIP
             log.info("жёсткие флаги: %s — вердикт SKIP", hard_flags)
 
+        # Рынок оценочный (мало объявлений-аналогов) — не верим красивой марже:
+        # богатая цифра не дороже MAYBE, пока её не подтвердит реальная выборка.
+        if estimated and verdict == Verdict.TAKE:
+            log.info("рынок оценочный (лотов-аналогов мало) — TAKE понижен до MAYBE")
+            verdict = Verdict.MAYBE
+
         analysis = Analysis(
             listing_id=listing.ad_id,
             flip_type=res.flip_type.value,
@@ -124,6 +174,7 @@ def run_on_listing(
             repairability_json=(res.repairability.model_dump() if res.repairability else None),
             parts_cost_eur=parts_cost,
             market_working_eur=res.deal.market_working_eur,
+            market_estimated=estimated,
             margin_eur=margin_eur,
             margin_pct=margin_pct,
             verdict=verdict.value,
@@ -142,6 +193,23 @@ def run_on_listing(
             maybe_notify(analysis, deal_cfg)       # FCM (если настроен)
             notify_telegram(analysis, deal_cfg)    # Telegram (если настроен)
         return analysis
+
+
+def _pending_query(s, analyzed_ids: set, limit: int) -> list[Listing]:
+    """Открытые лоты без анализа и без пустого описания. Свежие первыми:
+    быть быстрее конкурента на недооценённых объявлениях."""
+    return (
+        s.execute(
+            select(Listing)
+            .where(
+                Listing.status == "active",
+                ~Listing.ad_id.in_(analyzed_ids),
+                Listing.description != "",
+            )
+            .order_by(Listing.first_seen_at.desc())
+            .limit(limit)
+        ).scalars().all()
+    )
 
 
 def analyze_pending(
@@ -167,15 +235,7 @@ def analyze_pending(
         analyzed_ids = set(
             s.execute(select(Analysis.listing_id)).scalars().all()
         )
-        pending = s.execute(
-            select(Listing)
-            .where(
-                Listing.status == "active",
-                ~Listing.ad_id.in_(analyzed_ids),
-                Listing.description != "",
-            )
-            .limit(limit)
-        ).scalars().all()
+        pending = _pending_query(s, analyzed_ids, limit)
 
     results = []
     for listing in pending:

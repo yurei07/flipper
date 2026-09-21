@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -65,6 +65,7 @@ class Analysis(Base):
     repairability_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     parts_cost_eur: Mapped[float] = mapped_column(Float, default=0.0)
     market_working_eur: Mapped[float | None] = mapped_column(Float, nullable=True)
+    market_estimated: Mapped[bool] = mapped_column(Boolean, default=False)  # рынок из малой выборки
     margin_eur: Mapped[float] = mapped_column(Float, default=0.0)
     margin_pct: Mapped[float] = mapped_column(Float, default=0.0)
     verdict: Mapped[str] = mapped_column(String(10))  # TAKE | MAYBE | SKIP

@@ -98,6 +98,7 @@ def make_app(lifespan=None) -> FastAPI:
                 "margin_eur": a.margin_eur,
                 "margin_pct": a.margin_pct,
                 "confidence": a.confidence,
+                "market_estimated": a.market_estimated,
                 "location_city": (
                     listings[a.listing_id].location_city
                     if listings.get(a.listing_id) else None
@@ -139,6 +140,7 @@ def make_app(lifespan=None) -> FastAPI:
                     "margin_pct": analysis.margin_pct,
                     "parts_cost_eur": analysis.parts_cost_eur,
                     "market_working_eur": analysis.market_working_eur,
+                    "market_estimated": analysis.market_estimated,
                     "pros_ru": analysis.pros_ru_json,
                     "cons_ru": analysis.cons_ru_json,
                     "action_ru": analysis.action_ru,

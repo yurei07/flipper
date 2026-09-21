@@ -50,7 +50,7 @@ def search_query(key: str) -> str:
 def fetch_market_samples(
     client: ScraperClient,
     key: str,
-    max_results: int = 15,
+    max_results: int = 25,
 ) -> list[int]:
     """Ищет рабочие объявления по модели. Возвращает список цен в центах.
 

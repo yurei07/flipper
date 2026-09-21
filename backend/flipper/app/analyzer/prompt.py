@@ -173,4 +173,27 @@ FEWSHOT = [
             ensure_ascii=False,
         ),
     },
+    # Пример 3: resale — рабочее, просто недооценено (дефекта нет!)
+    {
+        "user": build_user_prompt(_fake("iPhone 11 64GB top Zustand, Display neu", 180)),
+        "assistant": json.dumps(
+            {
+                "flip_type": "resale",
+                "device": {"type": "phone", "brand": "Apple", "model": "iPhone 11 64GB",
+                           "specs_hint": "top, экран новый"},
+                "fault": None,
+                "repairability": None,
+                "deal": {
+                    "price_ask_eur": 180, "market_working_eur": 260, "repair_cost_eur": 0,
+                    "margin_eur": 75, "margin_pct": 42,
+                    "resale_speed_hint_ru": "iPhone 11 уходит за пару дней",
+                    "verdict": "TAKE", "confidence": 0.9,
+                    "pros_ru": ["рабочий, топ-состояние", "ликвидно"], "cons_ru": [],
+                    "action_ru": "брать, проверка через imei",
+                },
+                "flag_reasons_ru": [],
+            },
+            ensure_ascii=False,
+        ),
+    },
 ]
