@@ -23,6 +23,19 @@ export function DealPage() {
     } catch {}
   }
 
+  const [reMsg, setReMsg] = useState('')
+  const reanalyze = async () => {
+    setReMsg('анализирую… (секунды)')
+    try {
+      await api.reanalyze(d.ad_id)
+      const nd = await api.deal(d.ad_id)
+      setD(nd)
+      setReMsg('готово ✓')
+    } catch {
+      setReMsg('ошибка (может быть cooldown)')
+    }
+  }
+
   return (
     <main className="deal">
       <Link to="/" className="back">← лента</Link>
@@ -48,6 +61,8 @@ export function DealPage() {
           <div className="actions">
             <button className={d.saved ? 'on saved' : ''} onClick={() => act('saved')}>⭐ {d.saved ? 'взял' : 'беру'}</button>
             <button className={d.ignored ? 'on ign' : ''} onClick={() => act('ignored')}>🚫 {d.ignored ? 'скрыт' : 'мимо'}</button>
+            <button onClick={reanalyze}>↻ переанализ</button>
+            {reMsg && <span className="dim">{reMsg}</span>}
             <a className="ext" href={d.url} target="_blank" rel="noreferrer">открыть на Kleinanzeigen ↗</a>
           </div>
           <p className="dim">📍 {d.location_city || ''} · {d.created_at?.slice(0, 10) || ''}</p>

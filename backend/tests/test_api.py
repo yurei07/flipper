@@ -141,3 +141,23 @@ def test_searches_crud(api, headers):
 
 def test_searches_404(api, headers):
     assert api.delete("/api/v1/searches/999", headers=headers).status_code == 404
+
+
+def test_listings_created_after_hours(api, headers):
+    from datetime import datetime, timedelta
+
+    _seed_listing(ad_id=7771, title="fresh")
+    _seed_analysis(ad_id=7771, verdict="TAKE")
+    _seed_listing(ad_id=7772, title="old")
+    _seed_analysis(ad_id=7772, verdict="TAKE")
+    with get_session() as s:
+        a = s.query(Analysis).filter_by(listing_id=7772).first()
+        a.created_at = datetime.utcnow() - timedelta(hours=200)
+        s.commit()
+    all_rows = api.get("/api/v1/listings?limit=10000", headers=headers).json()
+    have_all = {r["ad_id"] for r in all_rows}
+    assert 7771 in have_all and 7772 in have_all
+    recent = api.get("/api/v1/listings?created_after_hours=72", headers=headers).json()
+    have_recent = {r["ad_id"] for r in recent}
+    assert 7771 in have_recent
+    assert 7772 not in have_recent

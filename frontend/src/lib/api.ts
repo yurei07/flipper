@@ -63,11 +63,20 @@ async function req(path: string, init: RequestInit = {}): Promise<any> {
 
 export class ApiError extends Error {}
 
+export interface FeedParams {
+  verdict?: string
+  min_margin?: number
+  created_after_hours?: number
+  limit?: number
+  offset?: number
+}
+
 export const api = {
-  feed: (params: { verdict?: string; min_margin?: number; q?: string; limit?: number; offset?: number }) => {
+  feed: (params: FeedParams) => {
     const p = new URLSearchParams()
     if (params.verdict) p.set('verdict', params.verdict)
     if (params.min_margin) p.set('min_margin', String(params.min_margin))
+    if (params.created_after_hours) p.set('created_after_hours', String(params.created_after_hours))
     if (params.limit) p.set('limit', String(params.limit))
     if (params.offset) p.set('offset', String(params.offset))
     return req(`/api/v1/listings?${p}`) as Promise<FeedItem[]>
@@ -75,6 +84,7 @@ export const api = {
   deal: (id: number) => req(`/api/v1/listings/${id}`) as Promise<Deal>,
   act: (id: number, action: 'saved' | 'ignored' | 'dismissed') =>
     req(`/api/v1/listings/${id}/${action}`, { method: 'POST' }),
+  reanalyze: (id: number) => req(`/api/v1/analyze/${id}`, { method: 'POST' }),
   stats: () => req('/api/v1/stats') as Promise<{ total_listings: number; verdicts: Record<string, number> }>,
   pushKeys: () => req('/api/v1/push/keys') as Promise<{ public_key: string }>,
   pushSubscribe: (endpoint: string, p256dh: string, auth: string, send_maybe: boolean) =>

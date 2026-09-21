@@ -3,22 +3,30 @@ import { Link } from 'react-router-dom'
 import { api, downloadCsv, eur, VERDICT_ICON, VERDICT_TEXT, type FeedItem } from '../lib/api'
 
 const PAGE = 40
+const HOUR_OPTIONS = [
+  { v: 0, label: 'за всё время' },
+  { v: 24, label: 'за 24 ч' },
+  { v: 72, label: 'за 72 ч' },
+  { v: 168, label: 'за 7 дней' },
+]
 
 export function Feed() {
   const [items, setItems] = useState<FeedItem[]>([])
   const [verdict, setVerdict] = useState<string>('')
   const [minMargin, setMinMargin] = useState(0)
   const [q, setQ] = useState('')
+  const [hours, setHours] = useState(0)
   const [off, setOff] = useState(0)
   const [stats, setStats] = useState<{ total_listings: number; verdicts: Record<string, number> } | null>(null)
   const [err, setErr] = useState('')
 
   const load = useCallback(
-    async (start = 0, useQ?: string, useV?: string, useMargin?: number) => {
+    async (start = 0, useQ?: string, useV?: string, useMargin?: number, useHours?: number) => {
       try {
         let rows = await api.feed({
           verdict: useV || verdict,
           min_margin: useMargin ?? minMargin,
+          created_after_hours: useHours ?? hours,
           limit: PAGE,
           offset: start,
         })
@@ -34,7 +42,7 @@ export function Feed() {
         setErr(e.message || 'ошибка загрузки')
       }
     },
-    [verdict, minMargin, q],
+    [verdict, minMargin, q, hours],
   )
 
   useEffect(() => {
@@ -58,14 +66,17 @@ export function Feed() {
   return (
     <main>
       <div className="toolbar">
-        <select value={verdict} onChange={(e) => { setVerdict(e.target.value); load(0, q, e.target.value, minMargin) }}>
+        <select value={verdict} onChange={(e) => { setVerdict(e.target.value); load(0, q, e.target.value, minMargin, hours) }}>
           <option value="">все вердикты</option>
           <option value="TAKE">🟢 TAKE</option>
           <option value="MAYBE">🟡 MAYBE</option>
           <option value="SKIP">⚪ SKIP</option>
         </select>
+        <select value={hours} onChange={(e) => { setHours(Number(e.target.value)); load(0, q, verdict, minMargin, Number(e.target.value)) }}>
+          {HOUR_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+        </select>
         <input type="number" placeholder="мин. маржа €" value={minMargin || ''}
-          onChange={(e) => { const v = Number(e.target.value) || 0; setMinMargin(v); load(0, q, verdict, v) }} />
+          onChange={(e) => { const v = Number(e.target.value) || 0; setMinMargin(v); load(0, q, verdict, v, hours) }} />
         <input placeholder="поиск по названию"
           value={q}
           onChange={(e) => setQ(e.target.value)}

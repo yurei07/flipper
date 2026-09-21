@@ -73,17 +73,23 @@ def make_app(lifespan=None) -> FastAPI:
     def listings(
         verdict: str | None = None,
         min_margin: float = 0.0,
+        created_after_hours: float = 0.0,
         limit: int = 50,
         offset: int = 0,
         _=Depends(require_key),
         s: Session = Depends(get_session),
     ):
-        """Лента: анализы с verdict-фильтром и порогом маржи."""
+        """Лента: анализы с verdict-фильтром, порогом маржи и «новые за N часов»."""
+        from datetime import datetime, timedelta
+
         q = select(Analysis).order_by(Analysis.created_at.desc())
         if verdict:
             q = q.where(Analysis.verdict == verdict)
         if min_margin:
             q = q.where(Analysis.margin_eur >= min_margin)
+        if created_after_hours > 0:
+            cutoff = datetime.utcnow() - timedelta(hours=created_after_hours)
+            q = q.where(Analysis.created_at >= cutoff)
         rows = s.execute(q.offset(offset).limit(limit)).scalars().all()
         listings = {
             l.ad_id: l
