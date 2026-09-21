@@ -420,11 +420,27 @@ notify:
 
 ---
 
-## 12. Уведомления: FCM и Telegram
+## 12. Уведомления: FCM, Telegram и Web Push
 
-Оба канала используют общий гейт `app/notify/gate.py` (`should_notify`): вердикт в
+Каналы используют общий гейт `app/notify/gate.py` (`should_notify`): вердикт в
 `notify_only_verdicts`, маржа выше профильного порога, объявление живо и не отмёчено
 пользователем (`dismissed`/`ignored`). Не настроенный канал тихо ничего не шлёт.
+
+### 12.0. Web Push (PWA — приложение в браузере/на телефоне)
+
+Веб-приложение (`frontend/`) раздаётся тем же сервером (см. §18). Уведомления Web Push
+(VAPID) приходят на телефон/браузер, где открыто приложение и разрешены уведомления:
+
+- Верхний переключатель в приложении — включить push; рядом «и MAYBE» — получать и
+  MAYBE-лоты (по умолчанию только TAKE).
+- Сервер: `app/notify/push.py` — ключи VAPID сохраняются в `~/.flipper/vapid.json`,
+  подписки в таблице `push_subscriptions`. TAKE уходит всем подпискам, MAYBE — только
+  подписчикам с `send_maybe`.
+- Снижение цены у уведомлённого лота тоже дублируется в push.
+- **Требование:** Web Push работает только по HTTPS. Быстрый cloudflared-туннель
+  даёт HTTPS (открой приложение по его адресу). Именованный туннель со стабильным
+  адресом — когда заведёшь Cloudflare-аккаунт (см. §14): quick-URL меняется при каждом
+  рестарте cloudflared, и телефон периодически теряет связь.
 
 ### 12.1. Telegram (рекомендуется — мобильное приложение не нужно)
 
@@ -575,8 +591,8 @@ flipper/
 │   ├── flipper/
 │   │   ├── app/
 │   │   │   ├── analyzer/     # LLM: base, ollama, openai_compat, factory, prompt, schema
-│   │   │   ├── api/routes.py # REST API
-│   │   │   ├── notify/       # telegram.py, heartbeat.py, fcm.py, gate.py
+│   │   │   ├── api/routes.py # REST API + раздача web-приложения
+│   │   │   ├── notify/       # telegram.py, heartbeat.py, fcm.py, gate.py, push.py
 │   │   │   ├── pricing/      # market.py, parts.py
 │   │   │   ├── scraper/      # client.py, search.py, detail.py
 │   │   │   ├── main.py       # uvicorn + lifespan
@@ -591,6 +607,7 @@ flipper/
 │   ├── config.yaml           # ← основные настройки
 │   ├── pyproject.toml
 │   └── Dockerfile
+├── frontend/                 # React PWA (Vite) — npm run build → backend раздаёт dist
 ├── docker-compose.yml
 ├── .env / .env.example
 └── README.md
