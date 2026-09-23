@@ -29,6 +29,7 @@ class Search(Base):
     __tablename__ = "searches"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(20), default=SOURCE_KLEINANZEIGEN)
     query: Mapped[str] = mapped_column(String(200))
     filters_json: Mapped[dict] = mapped_column(JSON, default=dict)
     active: Mapped[bool] = mapped_column(default=True)

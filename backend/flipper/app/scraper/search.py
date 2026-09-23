@@ -8,6 +8,7 @@ from datetime import datetime
 
 from flipper.app.db import get_session
 from flipper.app.models import Listing, Search, STATUS_ACTIVE, _now
+from flipper.app.settings import effective_excludes
 from flipper.config import ScraperConfig, SearchConfig
 from flipper.app.scraper.client import ScraperClient, ScraperBlocked
 from sqlalchemy import select
@@ -56,7 +57,13 @@ def _to_listing(ad) -> Listing:
 
 def _db_searches(s, cfg: ScraperConfig) -> list[SearchConfig]:
     """Поиски из БД (добавленные через приложение), иначе дефолт из конфига."""
-    rows = s.execute(select(Search).where(Search.active == 1)).scalars().all()
+    from flipper.app.models import SOURCE_KLEINANZEIGEN
+
+    rows = s.execute(
+        select(Search).where(
+            Search.active == 1, Search.source == SOURCE_KLEINANZEIGEN
+        )
+    ).scalars().all()
     if not rows:
         return cfg.searches
     return [
@@ -77,6 +84,7 @@ def scan_one(cfg: ScraperConfig, client: ScraperClient) -> int:
     new_count = 0
     # Локальный сет: одно объявление может попасть в несколько поисков за проход
     seen_this_pass: set[int] = set()
+    excl_keywords, excl_title_keywords = effective_excludes(cfg)
     with get_session() as s:
         ordered = _db_searches(s, cfg) or cfg.searches
         # Ротация ниш: за цикл берём подмножество (searches_per_cycle), со
@@ -111,8 +119,8 @@ def scan_one(cfg: ScraperConfig, client: ScraperClient) -> int:
                 if _excluded(
                     ad.title,
                     ad.description or "",
-                    cfg.exclude_keywords,
-                    cfg.exclude_title_keywords,
+                    excl_keywords,
+                    excl_title_keywords,
                 ):
                     continue
                 ad_id = int(ad.id)

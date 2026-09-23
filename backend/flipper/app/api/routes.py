@@ -35,14 +35,32 @@ class SubscribeBody(BaseModel):
 
 
 class SearchBody(BaseModel):
-    """Тело создания/обновления поиска (управление из приложения)."""
+    """Тело создания/обновления поиска (управление из приложения).
+
+    source='kleinanzeigen' | 'vinted'. Для KK важен radius/location,
+    для Vinted — catalog/brand/status ids. Остальное — общее (цена, активность).
+    """
 
     query: str = Field(min_length=1, max_length=200)
+    source: str = "kleinanzeigen"
     max_price_eur: float | None = None
     radius_km: int | None = None
     location: str | None = None
     sort_price: str | None = None
+    catalog_ids: list[int] = Field(default_factory=list)
+    brand_ids: list[int] = Field(default_factory=list)
+    status_ids: list[int] = Field(default_factory=list)
+    order: str | None = None
     active: bool = True
+
+
+class SettingsBody(BaseModel):
+    """Патч настроек из приложения (стоп-слова, вкл/выкл Vinted и т.п.)."""
+
+    exclude_keywords: list[str] | None = None
+    exclude_title_keywords: list[str] | None = None
+    vinted_enabled: bool | None = None
+    vinted_default_catalog_ids: list[int] | None = None
 
 
 def _set_action(s: Session, ad_id: int, action: str) -> dict:
@@ -52,6 +70,23 @@ def _set_action(s: Session, ad_id: int, action: str) -> dict:
     s.add(UserAction(listing_id=ad_id, action=action))
     s.commit()
     return {"ok": True}
+
+
+def _public_settings() -> dict:
+    """Настройки для страницы: значения из БД поверх дефолтов config.yaml."""
+    from flipper.app.settings import get_settings, vinted_enabled_effective
+
+    db_settings = get_settings()
+    return {
+        "exclude_keywords": db_settings.get("exclude_keywords")
+        or cfg.scraper.exclude_keywords,
+        "exclude_title_keywords": db_settings.get("exclude_title_keywords")
+        or cfg.scraper.exclude_title_keywords,
+        "vinted_enabled": vinted_enabled_effective(cfg.vinted),
+        "vinted_default_catalog_ids": db_settings.get("vinted_default_catalog_ids")
+        or cfg.vinted.default_catalog_ids,
+        "vinted_domain": cfg.vinted.domain,
+    }
 
 
 def make_app(lifespan=None) -> FastAPI:
@@ -361,27 +396,54 @@ def make_app(lifespan=None) -> FastAPI:
         rows = s.execute(select(Search).order_by(Search.id)).scalars().all()
         return [{
             "id": r.id,
+            "source": r.source,
             "query": r.query,
-            "filters": r.filters_json,
-            "active": r.active,
+            "filters": r.filters_json or {},
+            "active": bool(r.active),
         } for r in rows]
 
     @app.post("/api/v1/searches")
     def create_search(body: SearchBody, _=Depends(require_key), s: Session = Depends(get_session)):
         r = Search(
+            source=body.source,
             query=body.query,
             filters_json={
                 "max_price_eur": body.max_price_eur,
                 "radius_km": body.radius_km,
                 "location": body.location,
                 "sort_price": body.sort_price,
+                "catalog_ids": body.catalog_ids,
+                "brand_ids": body.brand_ids,
+                "status_ids": body.status_ids,
+                "order": body.order,
             },
             active=body.active,
         )
         s.add(r)
         s.commit()
         s.refresh(r)
-        return {"id": r.id, "query": r.query, "active": r.active}
+        return {"id": r.id, "source": r.source, "query": r.query, "active": r.active}
+
+    @app.put("/api/v1/searches/{search_id}")
+    def update_search(search_id: int, body: SearchBody, _=Depends(require_key), s: Session = Depends(get_session)):
+        r = s.get(Search, search_id)
+        if r is None:
+            raise HTTPException(status_code=404, detail="not found")
+        r.source = body.source
+        r.query = body.query
+        r.active = body.active
+        r.filters_json = {
+            "max_price_eur": body.max_price_eur,
+            "radius_km": body.radius_km,
+            "location": body.location,
+            "sort_price": body.sort_price,
+            "catalog_ids": body.catalog_ids,
+            "brand_ids": body.brand_ids,
+            "status_ids": body.status_ids,
+            "order": body.order,
+        }
+        s.commit()
+        return {"ok": True}
 
     @app.delete("/api/v1/searches/{search_id}")
     def delete_search(search_id: int, _=Depends(require_key), s: Session = Depends(get_session)):
@@ -391,6 +453,25 @@ def make_app(lifespan=None) -> FastAPI:
         s.delete(r)
         s.commit()
         return {"ok": True}
+
+    @app.get("/api/v1/settings")
+    def get_settings(_=Depends(require_key)):
+        return _public_settings()
+
+    @app.put("/api/v1/settings")
+    def put_settings(body: SettingsBody, _=Depends(require_key)):
+        from flipper.app.settings import update_settings
+
+        patch = body.model_dump(exclude_none=True)
+        if patch:
+            update_settings(patch)
+        return _public_settings()
+
+    @app.get("/api/v1/vinted/catalogs")
+    def vinted_catalogs(_=Depends(require_key)):
+        from flipper.app.scraper.vinted import VINTED_CATALOGS
+
+        return [{"id": cid, "title": title} for cid, title in VINTED_CATALOGS.items()]
 
     _dist = Path(__file__).resolve().parents[3].parent / "frontend" / "dist"
     if _dist.exists():

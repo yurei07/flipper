@@ -65,6 +65,45 @@ async function req(path: string, init: RequestInit = {}): Promise<any> {
 
 export class ApiError extends Error {}
 
+export interface SearchRow {
+  id: number
+  source: 'kleinanzeigen' | 'vinted'
+  query: string
+  filters: {
+    max_price_eur?: number
+    radius_km?: number
+    location?: string
+    sort_price?: string
+    catalog_ids?: number[]
+    brand_ids?: number[]
+    status_ids?: number[]
+    order?: string
+  }
+  active: boolean
+}
+
+export interface SearchDraft {
+  query: string
+  source: 'kleinanzeigen' | 'vinted'
+  max_price_eur?: number
+  radius_km?: number
+  location?: string
+  sort_price?: string
+  catalog_ids?: number[]
+  brand_ids?: number[]
+  status_ids?: number[]
+  order?: string
+  active: boolean
+}
+
+export interface AppSettings {
+  exclude_keywords: string[]
+  exclude_title_keywords: string[]
+  vinted_enabled: boolean
+  vinted_default_catalog_ids: number[]
+  vinted_domain: string
+}
+
 export interface FeedParams {
   verdict?: string
   min_margin?: number
@@ -96,6 +135,17 @@ export const api = {
     }),
   pushUnsubscribe: (endpoint: string) =>
     req(`/api/v1/push/unsubscribe?endpoint=${encodeURIComponent(endpoint)}`, { method: 'DELETE' }),
+  searchList: () => req('/api/v1/searches') as Promise<SearchRow[]>,
+  searchCreate: (d: SearchDraft) =>
+    req('/api/v1/searches', { method: 'POST', body: JSON.stringify(d) }),
+  searchUpdate: (id: number, d: SearchDraft) =>
+    req(`/api/v1/searches/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+  searchRemove: (id: number) => req(`/api/v1/searches/${id}`, { method: 'DELETE' }),
+  settings: () => req('/api/v1/settings') as Promise<AppSettings>,
+  setSettings: (patch: Partial<AppSettings>) =>
+    req('/api/v1/settings', { method: 'PUT', body: JSON.stringify(patch) }),
+  vintedCatalogs: () =>
+    req('/api/v1/vinted/catalogs') as Promise<{ id: string; title: string }[]>,
 }
 
 export const eur = (c: number) => (c / 100).toFixed(0) + '€'

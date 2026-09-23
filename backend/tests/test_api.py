@@ -143,6 +143,54 @@ def test_searches_404(api, headers):
     assert api.delete("/api/v1/searches/999", headers=headers).status_code == 404
 
 
+# ---------- поиски с источником ----------
+
+def test_searches_vinted_source_and_put(api, headers):
+    r = api.post("/api/v1/searches", headers=headers, json={
+        "query": "MacBook",
+        "source": "vinted",
+        "max_price_eur": 300,
+        "catalog_ids": [2994],
+        "order": "price_low_to_high",
+    })
+    assert r.status_code == 200
+    sid = r.json()["id"]
+    row = api.get("/api/v1/searches", headers=headers).json()[0]
+    assert row["source"] == "vinted"
+    assert row["filters"]["catalog_ids"] == [2994]
+
+    r = api.put(f"/api/v1/searches/{sid}", headers=headers, json={
+        "query": "MacBook Air",
+        "source": "vinted",
+        "active": False,
+    })
+    assert r.status_code == 200
+    row = api.get("/api/v1/searches", headers=headers).json()[0]
+    assert row["query"] == "MacBook Air" and row["active"] is False
+
+
+# ---------- настройки и справочник категорий ----------
+
+def test_settings_get_put_roundtrip(api, headers):
+    body = api.get("/api/v1/settings", headers=headers).json()
+    assert "exclude_keywords" in body and "vinted_enabled" in body
+    r = api.put("/api/v1/settings", headers=headers, json={
+        "exclude_keywords": ["сумка", "чехол"],
+        "vinted_enabled": False,
+    })
+    assert r.status_code == 200
+    assert api.get("/api/v1/settings", headers=headers).json()["exclude_keywords"] == ["сумка", "чехол"]
+    api.put("/api/v1/settings", headers=headers, json={"exclude_keywords": ["футляр"]})
+    assert api.get("/api/v1/settings", headers=headers).json()["exclude_keywords"] == ["футляр"]
+
+
+def test_vinted_catalogs_endpoint(api, headers):
+    r = api.get("/api/v1/vinted/catalogs", headers=headers)
+    assert r.status_code == 200
+    catalog_ids = {c["id"] for c in r.json()}
+    assert "2994" in catalog_ids
+
+
 def test_listings_created_after_hours(api, headers):
     from datetime import datetime, timedelta
 

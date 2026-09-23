@@ -4,6 +4,7 @@ import { getKey, setKey } from './lib/api'
 import { DealPage } from './pages/Deal'
 import { Feed } from './pages/Feed'
 import { PushGate } from './push'
+import { Settings } from './pages/Settings'
 
 export default function App() {
   const [key, setK] = useState(getKey())
@@ -44,11 +45,15 @@ export default function App() {
         <Link to="/" className="brand" onClick={() => window.dispatchEvent(new Event('flipper-refresh'))}>
           flipper
         </Link>
-        <PushGate />
+        <span className="push">
+          <Link className="settings-link" to="/settings">настройки</Link>
+          <PushGate />
+        </span>
       </header>
       <Routes location={loc}>
         <Route path="/" element={<Feed />} />
         <Route path="/deal/:id" element={<DealPage />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Feed />} />
       </Routes>
     </div>

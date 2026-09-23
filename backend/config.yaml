@@ -308,6 +308,7 @@ vinted:
   per_page: 24
   max_requests_per_cycle: 6    # бережём: свой скользящий лимит и паузы
   max_requests_per_hour: 60
+  default_catalog_ids: [2994]  # Elektronik: режет сумки/чехлы из других категорий
   searches:
     # Рабочие девайсы дешёвле рынка -> перепродажа (resale)
     - query: "iPhone 13"

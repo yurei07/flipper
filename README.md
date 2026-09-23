@@ -399,6 +399,25 @@ notify:
 > категории, что и техника (чехлы в «Handy & Telefon»). Поэтому дополнительно работает
 > `exclude_title_keywords` — стоп-слова для аксессуаров.
 
+### Управление нишами и стоп-словами из приложения
+
+Часть настроек не требует правки YAML и перезапуска — они живут в БД и
+перекрывают `config.yaml`:
+
+- **Поиски**: страница `/settings` (или `POST/PUT/DELETE /api/v1/searches`).
+  У каждого поиска есть `source: kleinanzeigen | vinted`, для Vinted работают
+  `catalog_ids/brand_ids/status_ids/order` (категории **реально фильтруют**),
+  для KK — `radius_km/location/sort_price`. Активные поиски из БД заменяют
+  строки конфига на обеих площадках.
+- **Стоп-слова**: `/settings` или `PUT /api/v1/settings` — ключи
+  `exclude_keywords` (заголовок+описание) и `exclude_title_keywords` (только
+  заголовок, аксессуары). Применяются к обоим источникам со следующего цикла.
+- **Vinted on/off и категория по умолчанию**: `PUT /api/v1/settings`
+  (`vinted_enabled`, `vinted_default_catalog_ids`, по умолчанию `[2994]`
+  Elektronik). Справочник проверенных категорий: `GET /api/v1/vinted/catalogs`.
+
+Когда в БД нет правок — работают дефолты из `config.yaml`.
+
 ---
 
 ## 10. Анти-бан

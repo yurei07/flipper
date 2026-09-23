@@ -153,7 +153,9 @@ def run_cycle(manual: bool = False) -> None:
 
         # Vinted — второй источник: свой клиент, свой бюджет, общий cooldown
         vinted_client: VintedClient | None = None
-        if cfg.vinted.enabled and cfg.vinted.searches:
+        from flipper.app.settings import has_active_vinted_searches, vinted_enabled_effective
+
+        if vinted_enabled_effective(cfg.vinted) and has_active_vinted_searches(cfg.vinted):
             vinted_client = VintedClient(
                 cfg.vinted,
                 max_requests=cfg.vinted.max_requests_per_cycle,

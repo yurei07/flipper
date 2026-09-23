@@ -15,11 +15,23 @@ from pathlib import Path
 from vinted_scraper import VintedScraper
 
 from flipper.app.db import get_session
-from flipper.app.models import Listing, STATUS_ACTIVE, SOURCE_VINTED
+from flipper.app.models import Listing, Search, STATUS_ACTIVE, SOURCE_VINTED
 from flipper.app.scraper.client import _HourlyLimiter
+from flipper.app.settings import effective_excludes, vinted_default_catalogs_effective
 from flipper.config import VintedConfig, VintedSearchConfig
+from sqlalchemy import select
 
 log = logging.getLogger(__name__)
+
+# Чуть-чуть проверенного справочника категорий Vinted.de (id из дерева
+# /catalog на живом сайте). 2994 = Elektronik — возвращает только технику,
+# режет сумки/чехлы из других доменов. Подкатегории часто меняются, поэтому
+# рекомендую не уточнять ниже Elektronik — общий фильтр уже чистит ленту.
+VINTED_CATALOGS: dict[str, str] = {
+    "2994": "Elektronik (вся техника)",
+    "3662": "Handy-Zubehör (чехлы — НЕ техника)",
+    "3064": "Displayschutz (плёнки — НЕ техника)",
+}
 
 # Vinted item id ~10-11 цифр; сдвиг гарантирует отсутствие коллизий с KK (ad_id).
 VINTED_ID_OFFSET = 1_000_000_000_000
@@ -158,7 +170,9 @@ class VintedClient:
             raise VintedBlocked(str(e)) from e
 
 
-def _search_params(sc: VintedSearchConfig, per_page: int) -> dict:
+def _search_params(
+    sc: VintedSearchConfig, per_page: int, default_catalogs: list[int] | None = None
+) -> dict:
     params: dict = {
         "search_text": sc.query,
         "order": sc.order or "newest_first",
@@ -166,13 +180,42 @@ def _search_params(sc: VintedSearchConfig, per_page: int) -> dict:
     }
     if sc.max_price_eur is not None:
         params["price_to"] = sc.max_price_eur
-    if sc.catalog_ids:
-        params["attribute_ids[catalog]"] = ",".join(map(str, sc.catalog_ids))
+    catalogs = sc.catalog_ids or default_catalogs or []
+    if catalogs:
+        params["attribute_ids[catalog]"] = ",".join(map(str, catalogs))
     if sc.brand_ids:
         params["attribute_ids[brand]"] = ",".join(map(str, sc.brand_ids))
     if sc.status_ids:
         params["attribute_ids[status]"] = ",".join(map(str, sc.status_ids))
     return params
+
+
+def _db_vinted_searches(s, vin: VintedConfig) -> list[VintedSearchConfig]:
+    """Поиски Vinted из БД (добавленные через приложение), иначе дефолт.
+
+    Копия логики _db_searches из KK-сканера: активные строки БД перекрывают
+    config.yaml. Значит и KK и Vinted-поиски правятся в одном месте — странице
+    настроек, без правки YAML и перезапуска.
+    """
+    rows = s.execute(
+        select(Search).where(Search.active == 1, Search.source == SOURCE_VINTED)
+    ).scalars().all()
+    if not rows:
+        return vin.searches
+    out = []
+    for r in rows:
+        f = r.filters_json or {}
+        out.append(
+            VintedSearchConfig(
+                query=r.query,
+                max_price_eur=f.get("max_price_eur"),
+                catalog_ids=f.get("catalog_ids") or [],
+                brand_ids=f.get("brand_ids") or [],
+                status_ids=f.get("status_ids") or [],
+                order=f.get("order") or "newest_first",
+            )
+        )
+    return out
 
 
 def scan_vinted(
@@ -182,22 +225,24 @@ def scan_vinted(
     new_count = 0
     seen_this_pass: set[int] = set()
     budget = min(vin.max_requests_per_cycle, max_requests or vin.max_requests_per_cycle)
+    excl_keywords, excl_title_keywords = effective_excludes(cfg_scraper)
+    default_catalogs = vinted_default_catalogs_effective(vin)
     with get_session() as s:
-        ordered = [sc for sc in vin.searches if sc.query]
+        ordered = [sc for sc in _db_vinted_searches(s, vin) if sc.query]
         random.shuffle(ordered)
 
         for sc in ordered:
             if client.requests_used >= budget:
                 break
-            items = client.search(_search_params(sc, vin.per_page))
+            items = client.search(_search_params(sc, vin.per_page, default_catalogs))
             for item in items:
                 if not item.id:
                     continue
                 if _excluded(
                     item.title or "",
                     item.description or "",
-                    cfg_scraper.exclude_keywords,
-                    cfg_scraper.exclude_title_keywords,
+                    excl_keywords,
+                    excl_title_keywords,
                 ):
                     continue
                 ad_id = vinted_ad_id(item.id)
