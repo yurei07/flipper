@@ -207,13 +207,14 @@ Base: `http://localhost:8000`. Авторизация — Bearer-токен из
 | GET/POST/DELETE | `/api/v1/searches` | управление поисками в БД |
 | POST | `/api/v1/notifications/register` | регистрация FCM-токена |
 | GET | `/api/v1/notifications/tokens` | список устройств (отладка) |
+| POST | `/api/v1/notifications/test` | разослать тестовый push всем устройствам |
 
 Примеры:
 
 ```bash
 curl localhost:8000/api/v1/health
 
-curl -H "Authorization: Bearer flipper_dev_key_2026" \
+curl -H "Authorization: Bearer $FLIPPER_API_KEY" \
   "localhost:8000/api/v1/listings?verdict=TAKE&limit=20"
 ```
 
@@ -269,7 +270,9 @@ alias flip='cd ~/Work/flipper/backend && ./.venv/bin/flipper'
 | `enabled` | вкл/выкл сканирование Vinted |
 | `domain` | `https://www.vinted.de` (без слэша в конце) |
 | `per_page` | лотов за один поиск (макс. 96) |
-| `max_requests_per_cycle` / `max_requests_per_hour` | бюджет Vinted (свой скользящий лимит, свой файл rate-limit) |
+| `max_requests_per_cycle` | **общий** бюджет Vinted за цикл = поиски + дозагрузка деталей |
+| `analyze_requests_per_cycle` | из цикла резервируется под дозагрузку деталей для анализа (иначе поиски съедают всё и Vinted не анализируется) |
+| `max_requests_per_hour` | скользящий часовой потолок (свой файл rate-limit) |
 | `searches[].query` | строка поиска |
 | `searches[].max_price_eur` | потолок цены (ловим недооценку) |
 | `searches[].catalog_ids/brand_ids/status_ids` | Категории/бренды/состояние — **на Vinted действительно фильтруют** |
@@ -556,34 +559,38 @@ cd ~/Work/flipper/backend && ./.venv/bin/flipper test-heartbeat
 Цена в БД обновляется при каждом повторном показе лота в поиске (`scan_one`),
 поэтому алерты работают даже на давно живых объявлениях.
 
-### 12.5. FCM (сложнее, нужен приложение-клиент)
+### 12.5. FCM (нативный push в Android-APK, настроено)
 
-Код готов (`app/notify/fcm.py`), но **включается только если задан service-account**.
-Push приходит на зарегистрированное устройство (нужно приложение-клиент с FCM).
+Push приходит на зарегистрированный Android-клиент (`frontend/android/` — APK с
+Firebase SDK). Включается только если задан service-account.
 
-Порядок настройки:
+Порядок настройки (повторить при новом развёртывании):
 
-1. Создай проект в [Firebase Console](https://console.firebase.google.com/).
-2. Добавь Android-приложение, скачай `google-services.json` для приложения.
+1. Создай проект в [Firebase Console](https://console.firebase.google.com/) (здесь: `flipper-577cd`).
+2. Добавь Android-приложение (`com.flipper.app`), скачай `google-services.json`
+   для приложения. Эталон лежит в `frontend/android/app/google-services.json`
+   (публичная часть, можно коммитить).
 3. Project settings → Service accounts → Generate new private key →
-   сохрани как `~/Work/flipper/backend/service-account.json`.
+   сохрани как `~/Work/flipper/flipper-firebase-adminsdk.json`.
 4. Пропиши в `~/Work/flipper/.env`:
 
    ```env
-   FLIPPER_FCM_SERVICE_ACCOUNT=/home/prizrak/Work/flipper/backend/service-account.json
+   FLIPPER_FCM_SERVICE_ACCOUNT=/home/prizrak/Work/flipper/flipper-firebase-adminsdk.json
    ```
 
 5. `systemctl --user restart flipper`. В логе: `FCM инициализирован из ...`.
-6. Приложение при старте шлёт свой FCM-токен:
+   Проверка готовности: `GET /api/v1/health` → поле `fcm_ready: true`.
+6. Приложение при старте шлёт свой FCM-токен (`POST /api/v1/notifications/register`)
+   и просит разрешение на уведомления — токен появится в `GET /api/v1/notifications/tokens`.
+7. Тестовый push на все устройства:
 
    ```bash
-   curl -X POST localhost:8000/api/v1/notifications/register \
-     -H "Authorization: Bearer flipper_dev_key_2026" \
-     -H "Content-Type: application/json" \
-     -d '{"fcm_token":"<TOKEN>","platform":"android"}'
+   curl -X POST localhost:8000/api/v1/notifications/test \
+     -H "Authorization: Bearer $FLIPPER_API_KEY"
    ```
 
-Файл `service-account*.json` уже в `.gitignore` — в репозиторий не попадёт.
+Файл `service-account*.json` / `flipper-firebase-adminsdk*.json` уже в `.gitignore` —
+в репозиторий не попадёт.
 
 > **Проще:** используй Telegram (§12.1) — без мобильного приложения и Firebase.
 
@@ -595,6 +602,7 @@ Push приходит на зарегистрированное устройст
 
 - `flipper.service` — uvicorn на `:8000` + APScheduler
 - `cloudflared.service` — туннель к `:8000`
+- `flipper-tunnel-reset.timer` — рестарт туннеля раз в 3 ч (свежий HTTPS-URL)
 - `ollama.service` — LLM (системный, нужен только для офлайн-фолбэка)
 
 Автозапуск:
@@ -649,6 +657,35 @@ journalctl --user -u cloudflared | grep trycloudflare | tail -1
 ⚠️ URL **меняется при каждом рестарте** `cloudflared` — для постоянного публичного
 адреса нужен именованный туннель с зарегистрированным доменом на Cloudflare.
 
+### 14б. Android-приложение (Capacitor 8, APK с нативным push)
+
+`frontend/` — это и PWA, и исходники Android-приложения. На телефоне оно живёт
+как обычный APK со своим вводом «Сервер + ключ» на экране логина и нативными
+уведомлениями (FCM, §12.5).
+
+Сборка APK (без ожидания входа в Play Console — ставится напрямую):
+
+```bash
+cd ~/Work/flipper/frontend
+export JAVA_HOME=$HOME/.local/share/mise/installs/java/21   # Capacitor 8 нужен JDK 21
+export ANDROID_HOME=$HOME/Android                            # SDK: platform 34 + build-tools
+npm run apk   # -> web build -> cap sync -> assembleDebug -> dist/flipper.apk
+```
+
+Сервер раздаёт готовый файл: последняя сборка всегда на
+`http://100.x.x.x:8000/flipper.apk` (или через туннель, §14а). На телефоне
+открываешь ссылку, ставишь APK, в приложении указываешь сервер `http://100.x.x.x:8000`
+и ключ из `.env`, разрешаешь уведомления.
+
+Особенности:
+
+- `androidScheme: http` + cleartext — ходим по обычному HTTP внутри tailnet;
+- иконки и сплеш — локальные векторы (`frontend/android/app/res/`), лаунчер — молния;
+- всё приложение (редизайн: лента с вердиктами, страница лота, вкладка
+  «Избранное», настройки с выходом) уже в исходниках;
+- push регистрируется автоматически: при старте приложение запрашивает
+  разрешение и шлёт FCM-токен на `POST /api/v1/notifications/register`.
+
 ---
 
 ## 15. Структура проекта
@@ -676,6 +713,7 @@ flipper/
 │   ├── pyproject.toml
 │   └── Dockerfile
 ├── frontend/                 # React PWA (Vite) — npm run build → backend раздаёт dist
+│   └── android/              # Capacitor 8: APK (google-services.json, иконки, splash)
 ├── docker-compose.yml
 ├── .env / .env.example
 └── README.md
@@ -718,9 +756,10 @@ cd ~/Work/flipper/backend
 - [x] **Слежение за ценой** (§12.4): цена упала на уведомлённом лоте → повторный алерт.
 - [x] **cloudflared Restart=always** + таймер рестарта раз в 3 ч (маскирует edge-ошибки быстрого туннеля).
 - [x] **Удалённый доступ из любой сети** — Tailscale (§14): сервер по `http://100.x.x.x:8000`, телефон в той же tailnet.
-- [x] **Android-приложение (Capacitor 8 APK)** — редизайн, вход Сервер+ключ, нижний таббар. Сборка: `npm run apk` (дистрибутив `https://<сервер>/flipper.apk`).
+- [x] **Сервер не выключается** — базовый сценарий: телефон в tailnet + APK, сервер на ПК.
+- [x] **Android-приложение (Capacitor 8 APK)** — редизайн, вход Сервер+ключ, нижний таббар. Сборка: `npm run apk` (дистрибутив `https://<сервер>/flipper.apk`, §14б).
+- [x] **Нативный push в APK (FCM)** — `google-services.json` в сборке, регистрация токена `POST /api/v1/notifications/register`, тест `POST /api/v1/notifications/test` (§12.5).
 - [ ] Тюнинг ниш по факту улова (смотреть, что реально даёт TAKE).
 - [ ] Именованный cloudflare-туннель (когда будет зарегистрированный домен).
-- [ ] Нативный push в APK (FCM: `google-services.json` + §12).
 - [ ] Больше категорий (Спорт, Инструменты, Wearables).
 - [ ] Экспорт статистики: сколько TAKE/MAYBE, средняя маржа, конверсия.
