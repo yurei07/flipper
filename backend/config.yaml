@@ -178,16 +178,6 @@ scraper:
       radius_km: 15
       location: "Flensburg"
       category_ids: [173]
-    - query: "iMac"
-      radius_km: 15
-      location: "Flensburg"
-      category_ids: [228]
-      max_price_eur: 150
-    - query: "ThinkPad"
-      radius_km: 15
-      location: "Flensburg"
-      category_ids: [278]
-      max_price_eur: 120
     - query: "Apple Watch"
       radius_km: 15
       location: "Flensburg"
@@ -206,6 +196,43 @@ scraper:
       radius_km: 15
       location: "Flensburg"
       max_price_eur: 80
+    # --- «Хорошая вещь за малую цену»: железо дороже запрошенного порога ---
+    - query: "iPhone 13"
+      max_price_eur: 350
+      radius_km: 15
+      location: "Flensburg"
+    - query: "iPhone 14"
+      max_price_eur: 450
+      radius_km: 15
+      location: "Flensburg"
+    - query: "MacBook Pro"
+      max_price_eur: 350
+      radius_km: 15
+      location: "Flensburg"
+    - query: "RTX"
+      max_price_eur: 300
+      radius_km: 15
+      location: "Flensburg"
+    - query: "Gaming Laptop"
+      max_price_eur: 250
+      radius_km: 15
+      location: "Flensburg"
+    - query: "Gaming PC"
+      max_price_eur: 250
+      radius_km: 15
+      location: "Flensburg"
+    - query: "OLED"
+      max_price_eur: 200
+      radius_km: 15
+      location: "Flensburg"
+    - query: "DJI"
+      max_price_eur: 150
+      radius_km: 15
+      location: "Flensburg"
+    - query: "GoPro"
+      max_price_eur: 120
+      radius_km: 15
+      location: "Flensburg"
   # Титулы/описания с этими словами - отбрасывать (клиентский фильтр)
   # Catch-all «defekt» тянет весь сайт (API игнорирует категории для строковых
   # запросов) — этим фильтром отсекаем заведомо не-технику: велосипеды/мебель/
@@ -247,6 +274,14 @@ scraper:
     - "tasche"
     - "case"
     - "cover"
+    - "coque"
+    - "housse"
+    - "etui"
+    - "borsa"
+    - "funda"
+    - "sac"
+    - "pouch"
+    - "sleeve"
     - "kabel"
     - "ladegerät"
     - "ladekabel"
@@ -263,6 +298,58 @@ scraper:
     - "spiele"
     - "pullover"
     - "anleitung"
+
+# ===== Vinted — второй источник (своя дисциплина anti-ban) =====
+# Категории и бренды на Vinted реально работают (attribute_ids), поэтому
+# фильтр строгий. Город не ставим: Vinted везёт по всей Германии.
+vinted:
+  enabled: true
+  domain: "https://www.vinted.de"
+  per_page: 24
+  max_requests_per_cycle: 6    # бережём: свой скользящий лимит и паузы
+  max_requests_per_hour: 60
+  searches:
+    # Рабочие девайсы дешёвле рынка -> перепродажа (resale)
+    - query: "iPhone 13"
+      max_price_eur: 250
+    - query: "iPhone 12"
+      max_price_eur: 180
+    - query: "MacBook Air"
+      max_price_eur: 300
+    - query: "MacBook Pro"
+      max_price_eur: 400
+    - query: "iPad"
+      max_price_eur: 200
+    - query: "ThinkPad"
+      max_price_eur: 200
+    - query: "Samsung Galaxy"
+      max_price_eur: 200
+    - query: "Google Pixel"
+      max_price_eur: 180
+    - query: "OnePlus"
+      max_price_eur: 150
+    # Приличное задешево: железо с хорошей видюхой по малой цене
+    - query: "RTX 3060"
+      max_price_eur: 200
+    - query: "Gaming Laptop"
+      max_price_eur: 250
+    - query: "Gaming PC"
+      max_price_eur: 250
+    - query: "OLED TV"
+      max_price_eur: 150
+    - query: "Monitor"
+      max_price_eur: 100
+    - query: "Nintendo Switch"
+      max_price_eur: 100
+    - query: "PlayStation"
+      max_price_eur: 150
+    - query: "Xbox"
+      max_price_eur: 100
+    # Ремонтные углы (на Vinted их меньше, но бывают)
+    - query: "defekt Bastler"
+      max_price_eur: 80
+    - query: "reparieren"
+      max_price_eur: 60
 
 # ===== Анализатор (LLM) =====
 analyzer:

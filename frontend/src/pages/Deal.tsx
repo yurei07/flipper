@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { api, eur, VERDICT_ICON, type Deal } from '../lib/api'
+import { api, eur, SOURCE_LABEL, VERDICT_ICON, type Deal } from '../lib/api'
 
 export function DealPage() {
   const { id } = useParams()
@@ -63,9 +63,9 @@ export function DealPage() {
             <button className={d.ignored ? 'on ign' : ''} onClick={() => act('ignored')}>🚫 {d.ignored ? 'скрыт' : 'мимо'}</button>
             <button onClick={reanalyze}>↻ переанализ</button>
             {reMsg && <span className="dim">{reMsg}</span>}
-            <a className="ext" href={d.url} target="_blank" rel="noreferrer">открыть на Kleinanzeigen ↗</a>
+            <a className="ext" href={d.url} target="_blank" rel="noreferrer">открыть на {d.source === 'vinted' ? 'Vinted' : 'Kleinanzeigen'} ↗</a>
           </div>
-          <p className="dim">📍 {d.location_city || ''} · {d.created_at?.slice(0, 10) || ''}</p>
+          <p className="dim"><span className={`badge src-${d.source}`}>{SOURCE_LABEL[d.source] || d.source}</span> 📍 {d.location_city || ''} · {d.created_at?.slice(0, 10) || ''}</p>
         </div>
       </div>
       <pre className="desc">{d.description}</pre>

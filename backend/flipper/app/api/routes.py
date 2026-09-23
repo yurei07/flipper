@@ -123,6 +123,7 @@ def make_app(lifespan=None) -> FastAPI:
                 ),
                 "saved": actions.get(a.listing_id) == "saved",
                 "ignored": actions.get(a.listing_id) in ("ignored", "dismissed"),
+                "source": listings[a.listing_id].source if listings.get(a.listing_id) else "kleinanzeigen",
                 "created_at": a.created_at.isoformat() if a.created_at else None,
             }
             for a in rows
@@ -142,6 +143,7 @@ def make_app(lifespan=None) -> FastAPI:
         return {
             "ad_id": listing.ad_id,
             "title": listing.title,
+            "source": listing.source,
             "price_cents": listing.price_cents,
             "description": listing.description,
             "url": listing.url,
@@ -267,7 +269,7 @@ def make_app(lifespan=None) -> FastAPI:
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow(
-            ["дата", "id", "название", "вердикт", "тип", "маржа_eur", "маржа_pct",
+            ["дата", "id", "название", "источник", "вердикт", "тип", "маржа_eur", "маржа_pct",
              "цена_eur", "рынок_eur", "запчасти_eur", "город", "url"]
         )
         for a in rows:
@@ -277,6 +279,7 @@ def make_app(lifespan=None) -> FastAPI:
                     a.created_at.strftime("%Y-%m-%d") if a.created_at else "",
                     a.listing_id,
                     l.title if l else "",
+                    l.source if l else "kleinanzeigen",
                     a.verdict,
                     a.flip_type,
                     f"{a.margin_eur:.2f}",
@@ -328,7 +331,20 @@ def make_app(lifespan=None) -> FastAPI:
             timeout_sec=cfg.analyzer.timeout_sec,
             retries=cfg.analyzer.retries,
         )
-        analysis = run_on_listing(ad_id, provider, scraper, cfg.deal, notify=False)
+        # Лоты с Vinted считаем рынок на Vinted (иначе KK)
+        vinted_client = None
+        if vinted_client is None and cfg.vinted.enabled:
+            from flipper.app.db import get_session as _gs
+            from flipper.app.scraper.vinted import VintedClient
+            with _gs() as _s:
+                list_row = _s.get(Listing, ad_id)
+            if list_row is not None and getattr(list_row, "source", None) == "vinted":
+                vinted_client = VintedClient(
+                    cfg.vinted,
+                    max_requests=cfg.vinted.max_requests_per_cycle,
+                    max_requests_per_hour=cfg.vinted.max_requests_per_hour,
+                )
+        analysis = run_on_listing(ad_id, provider, scraper, cfg.deal, notify=False, vinted_client=vinted_client)
         if analysis is None:
             raise HTTPException(status_code=404, detail="not found")
         return {

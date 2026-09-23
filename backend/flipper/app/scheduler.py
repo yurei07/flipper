@@ -136,9 +136,10 @@ def run_cycle(manual: bool = False) -> None:
     run_id = _record("ok", 0, 0, 0, "")  # стартовая запись, финализируем ниже
     try:
         from flipper.app.analyzer.factory import make_provider
-        from flipper.app.scraper.client import ScraperClient
+        from flipper.app.scraper.client import ScraperClient, ScraperBlocked
         from flipper.app.scraper.detail import enrich_new
         from flipper.app.scraper.search import scan_one
+        from flipper.app.scraper.vinted import VintedBlocked, VintedClient, scan_vinted
         from flipper.app.pipeline import analyze_pending, prune_stale_maybes
 
         client = ScraperClient(
@@ -149,6 +150,18 @@ def run_cycle(manual: bool = False) -> None:
         provider = make_provider(cfg.analyzer)
 
         new = scan_one(cfg.scraper, client)
+
+        # Vinted — второй источник: свой клиент, свой бюджет, общий cooldown
+        vinted_client: VintedClient | None = None
+        if cfg.vinted.enabled and cfg.vinted.searches:
+            vinted_client = VintedClient(
+                cfg.vinted,
+                max_requests=cfg.vinted.max_requests_per_cycle,
+                max_requests_per_hour=cfg.vinted.max_requests_per_hour,
+            )
+            vnew = scan_vinted(cfg.scraper, cfg.vinted, vinted_client)
+            log.info("vinted: новых=%d, запросов=%d", vnew, vinted_client.requests_used)
+            new += vnew
         if new:
             enrich_new(client, limit=cfg.scraper.enrich_per_cycle)
         # Мягкий дедлайн: анализ занимает большую часть цикла, но не вылезает
@@ -159,6 +172,7 @@ def run_cycle(manual: bool = False) -> None:
             cfg.deal,
             limit=cfg.scraper.analyze_per_cycle,
             max_seconds=cfg.scraper.poll_interval_min * 60 * 0.6,
+            vinted_client=vinted_client,
         )
         # MAYBE «завис» > N дней: убираем анализ — цикл пересмотрит лот заново
         # (цена могла упасть -> вердикт стал TAKE; снова уведомим).
@@ -185,6 +199,10 @@ def run_cycle(manual: bool = False) -> None:
     except ScraperBlocked as e:
         # Дошли до бюджета или капчи -> реально ждём час (правило §2.5)
         log.warning("блок: %s — включаю cooldown", e)
+        _finish(run_id, "blocked", 0, 0, 0, str(e))
+        set_cooldown()
+    except VintedBlocked as e:
+        log.warning("vinted блок: %s — включаю cooldown", e)
         _finish(run_id, "blocked", 0, 0, 0, str(e))
         set_cooldown()
     except Exception as e:

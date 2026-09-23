@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from flipper.app.db import get_session
 from flipper.app.models import Listing, PriceSample
 from flipper.app.scraper.client import ScraperClient, ScraperBlocked
+from flipper.app.scraper.vinted import VintedBlocked, VintedClient
 from flipper.config import DealConfig
 
 log = logging.getLogger(__name__)
@@ -86,6 +87,48 @@ def fetch_market_samples(
 _NOT_WORKING_REGEX_INTERNAL = re.compile(_NOT_WORKING, re.IGNORECASE)
 
 
+def fetch_vinted_market_samples(
+    vclient: VintedClient,
+    key: str,
+    max_results: int = 25,
+) -> list[int]:
+    """Рабочие аналоги цены на Vinted (площадка, где мы тоже продаём).
+
+    Фильтры: лот с размером (size_title) — это одежда/аксессуар/чехол, не аналог;
+    title/desc без признаков нерабочего; цена 10-1500 EUR.
+    """
+    q = search_query(key)
+    if not q:
+        return []
+    try:
+        items = vclient.search(
+            {
+                "search_text": q,
+                "order": "relevance",
+                "per_page": min(max_results, 96),
+            }
+        )
+    except VintedBlocked:
+        raise  # блок Vinted -> общий cooldown
+    except Exception as e:
+        log.warning("vinted рыночный поиск %r упал: %s", q, e)
+        return []
+    prices: list[int] = []
+    for it in items:
+        if getattr(it, "size_title", None):
+            continue
+        if _NOT_WORKING_REGEX_INTERNAL.search(
+            f"{it.title or ''} {it.description or ''}"
+        ):
+            continue
+        p = int(round((it.price or 0) * 100))
+        if _PRICE_MIN_EUR * 100 <= p <= _PRICE_MAX_EUR * 100:
+            prices.append(p)
+        if len(prices) >= max_results:
+            break
+    return prices
+
+
 def _cache_hit(sess: Session, key: str, days: int) -> list[int]:
     """Цены из кэша price_samples, свежие за N дней."""
     cutoff = datetime.utcnow() - timedelta(days=days)
@@ -106,10 +149,12 @@ def market_price_eur(
     key: str,
     client: ScraperClient,
     deal_cfg: DealConfig,
+    vinted_client: VintedClient | None = None,
 ) -> tuple[float | None, bool]:
     """Итоговая рыночная цена в EUR и флаг estimate=True (если мало сэмплов).
 
     Возвращает (None, False) если ничего не известно (тогда используем оценку модели).
+    vinted_client задан -> сэмплы берём с площадки лота (источник), иначе с KK.
     """
     with get_session() as s:
         cached = _cache_hit(s, key, deal_cfg.price_cache_days)
@@ -117,7 +162,13 @@ def market_price_eur(
             samples = cached
             log.info("кэш %s: %d сэмплов", key, len(samples))
         else:
-            samples = fetch_market_samples(client, key)
+            if vinted_client is not None:
+                samples = fetch_vinted_market_samples(vinted_client, key)
+                if not samples:
+                    # на Vinted нет аналогов — подстраховка ценой с KK
+                    samples = fetch_market_samples(client, key)
+            else:
+                samples = fetch_market_samples(client, key)
             if not samples:
                 return None, False
             # кладём свежие цены в price_samples

@@ -19,6 +19,13 @@ def _migrate_sqlite(engine) -> None:
             conn.execute(
                 text("ALTER TABLE listings ADD COLUMN last_notified_price_cents INTEGER")
             )
+        if "source" not in cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE listings ADD COLUMN source VARCHAR(20) "
+                    "NOT NULL DEFAULT 'kleinanzeigen'"
+                )
+            )
         acols = {r[1] for r in conn.execute(text("PRAGMA table_info(analyses)"))}
         if "market_estimated" not in acols:
             conn.execute(

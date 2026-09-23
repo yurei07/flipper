@@ -64,6 +64,8 @@ header {
   font-size: 11px; color: var(--bg); background: var(--warn); border-radius: 999px;
   padding: 1px 8px; font-weight: 700;
 }
+.badge.src-vinted { background: #09b1ba; color: #fff; }
+.badge.src-kleinanzeigen { background: #8a2be2; color: #fff; }
 .actions { display: flex; gap: 8px; margin-top: auto; flex-wrap: wrap; }
 .actions button {
   display: flex; gap: 4px; align-items: center; font-size: 12px; padding: 4px 8px;

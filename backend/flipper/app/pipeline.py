@@ -18,6 +18,7 @@ from flipper.app.notify.push import notify_push
 from flipper.app.pricing.market import market_price_eur, model_key
 from flipper.app.pricing.parts import get_parts_cost
 from flipper.app.scraper.client import ScraperClient, ScraperBlocked
+from flipper.app.models import SOURCE_VINTED
 from flipper.config import DealConfig
 
 log = logging.getLogger(__name__)
@@ -122,6 +123,7 @@ def run_on_listing(
     scraper: ScraperClient,
     deal_cfg: DealConfig,
     notify: bool = True,
+    vinted_client=None,
 ) -> Analysis | None:
     """Анализ + ценовой модуль, запись в analyses. Возвращает SQLAlchemy-объект."""
     with get_session() as s:
@@ -134,7 +136,9 @@ def run_on_listing(
 
         # --- §7: реальная рыночная цена (перезаписываем модель) ---
         key = model_key(res.device.model_dump())
-        real = market_price_eur(key, scraper, deal_cfg)
+        # Сэмплы рынка берём с площадки лота, где и продаём (иначе KK)
+        vinted = vinted_client if getattr(listing, "source", None) == SOURCE_VINTED else None
+        real = market_price_eur(key, scraper, deal_cfg, vinted_client=vinted)
         estimated = real[1]
         if real[0] is not None:
             res.deal.market_working_eur = real[0]
@@ -254,6 +258,7 @@ def analyze_pending(
     deal_cfg: DealConfig,
     limit: int = 5,
     max_seconds: float | None = None,
+    vinted_client=None,
 ) -> list[Analysis]:
     """Прогон анализа по объявлениям без анализа. Возвращает список свежих Analysis.
 
@@ -292,7 +297,9 @@ def analyze_pending(
                 break
             time.sleep(gap)
         try:
-            a = run_on_listing(listing.ad_id, provider, scraper, deal_cfg)
+            a = run_on_listing(
+                listing.ad_id, provider, scraper, deal_cfg, vinted_client=vinted_client
+            )
             if a is not None:
                 results.append(a)
         except ScraperBlocked:

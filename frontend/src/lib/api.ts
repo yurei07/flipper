@@ -11,12 +11,14 @@ export interface FeedItem {
   location_city: string | null
   saved: boolean
   ignored: boolean
+  source: 'kleinanzeigen' | 'vinted'
   created_at: string | null
 }
 
 export interface Deal {
   ad_id: number
   title: string
+  source: 'kleinanzeigen' | 'vinted'
   price_cents: number
   description: string
   url: string
@@ -97,6 +99,11 @@ export const api = {
 }
 
 export const eur = (c: number) => (c / 100).toFixed(0) + '€'
+
+export const SOURCE_LABEL: Record<string, string> = {
+  kleinanzeigen: 'kk',
+  vinted: 'vint',
+}
 
 export function downloadCsv(verdict: string, minMargin: number) {
   const p = new URLSearchParams()

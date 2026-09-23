@@ -47,6 +47,28 @@ class ScraperConfig:
 
 
 @dataclass
+class VintedSearchConfig:
+    """Одна строка поиска на Vinted."""
+    query: str
+    max_price_eur: float | None = None
+    catalog_ids: list[int] = field(default_factory=list)   # attribute_ids[catalog]
+    brand_ids: list[int] = field(default_factory=list)     # attribute_ids[brand]
+    status_ids: list[int] = field(default_factory=list)    # attribute_ids[status] (Zustand)
+    order: str = "newest_first"
+
+
+@dataclass
+class VintedConfig:
+    """Настройки второго источника — Vinted (своя дисциплина anti-ban)."""
+    enabled: bool = False
+    domain: str = "https://www.vinted.de"
+    per_page: int = 24
+    max_requests_per_cycle: int = 8
+    max_requests_per_hour: int = 0
+    searches: list[VintedSearchConfig] = field(default_factory=list)
+
+
+@dataclass
 class AnalyzerConfig:
     provider: str = "local"          # local | groq | openrouter | cerebras | together
     model: str = "qwen3:8b"
@@ -98,6 +120,7 @@ class NotifyConfig:
 @dataclass
 class Config:
     scraper: ScraperConfig
+    vinted: VintedConfig
     analyzer: AnalyzerConfig
     deal: DealConfig
     api: ApiConfig
@@ -114,6 +137,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
         raw = yaml.safe_load(f) or {}
 
     scr = raw.get("scraper", {})
+    vin = raw.get("vinted", {})
     ana = raw.get("analyzer", {})
     dl = raw.get("deal", {})
     api = raw.get("api", {})
@@ -149,6 +173,24 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
             searches=searches,
             exclude_keywords=scr.get("exclude_keywords", []),
             exclude_title_keywords=scr.get("exclude_title_keywords", []),
+        ),
+        vinted=VintedConfig(
+            enabled=vin.get("enabled", False),
+            domain=vin.get("domain", "https://www.vinted.de").rstrip("/"),
+            per_page=vin.get("per_page", 24),
+            max_requests_per_cycle=vin.get("max_requests_per_cycle", 8),
+            max_requests_per_hour=vin.get("max_requests_per_hour", 0),
+            searches=[
+                VintedSearchConfig(
+                    query=s.get("query", ""),
+                    max_price_eur=s.get("max_price_eur"),
+                    catalog_ids=s.get("catalog_ids", []),
+                    brand_ids=s.get("brand_ids", []),
+                    status_ids=s.get("status_ids", []),
+                    order=s.get("order", "newest_first"),
+                )
+                for s in vin.get("searches", [])
+            ],
         ),
         analyzer=AnalyzerConfig(
             provider=ana.get("provider", "local"),

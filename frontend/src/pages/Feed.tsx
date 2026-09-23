@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, downloadCsv, eur, VERDICT_ICON, VERDICT_TEXT, type FeedItem } from '../lib/api'
+import { api, downloadCsv, eur, SOURCE_LABEL, VERDICT_ICON, VERDICT_TEXT, type FeedItem } from '../lib/api'
 
 const PAGE = 40
 const HOUR_OPTIONS = [
@@ -101,7 +101,8 @@ export function Feed() {
                 {it.market_estimated && <span className="badge" title="мало лотов-аналогов: оценка ИИ, а не рынок">оценочно</span>}
               </div>
               <div className="meta dim">
-                <span>{eur(it.price_cents)} · {it.location_city || ''}</span>
+                <span>{eur(it.price_cents)} · {it.location_city || (it.source === 'vinted' ? 'vinted' : '')}</span>
+                {it.source && <span className={`badge src-${it.source}`} title={it.source}>{SOURCE_LABEL[it.source] || it.source}</span>}
               </div>
               <div className="actions">
                 <button title="беру/отложил" className={it.saved ? 'on saved' : ''} onClick={() => act(it.ad_id, 'saved')}>⭐ <small>{it.saved ? 'взял' : 'беру'}</small></button>

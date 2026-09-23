@@ -15,6 +15,10 @@ class Base(DeclarativeBase):
 STATUS_ACTIVE = "active"
 STATUS_GONE = "gone"  # 404 на сайте - удалено/продано
 
+# Площадка, откуда приехал лот
+SOURCE_KLEINANZEIGEN = "kleinanzeigen"
+SOURCE_VINTED = "vinted"
+
 
 def _now() -> datetime:
     return datetime.utcnow()
@@ -32,10 +36,11 @@ class Search(Base):
 
 
 class Listing(Base):
-    """Объявление на Kleinanzeigen."""
+    """Объявление на Kleinanzeigen или Vinted."""
     __tablename__ = "listings"
 
     ad_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(20), default=SOURCE_KLEINANZEIGEN)
     title: Mapped[str] = mapped_column(String(300))
     price_cents: Mapped[int] = mapped_column(Integer, default=0)
     description: Mapped[str] = mapped_column(Text, default="")
