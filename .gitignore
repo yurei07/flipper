@@ -7,3 +7,4 @@ flipper.db
 .pytest_cache/
 # Firebase service-account (секрет, не в репозиторий)
 service-account*.json
+flipper-firebase-adminsdk*.json
