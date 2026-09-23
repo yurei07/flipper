@@ -245,6 +245,33 @@ def make_app(lifespan=None) -> FastAPI:
         s.commit()
         return {"ok": True}
 
+    @app.post("/api/v1/notifications/test")
+    def test_push(_=Depends(require_key)):
+        """Тестовое уведомление на все зарегистрированные устройства."""
+        from flipper.app.notify.fcm import _get_messaging
+
+        messaging = _get_messaging()
+        if messaging is None:
+            raise HTTPException(status_code=400, detail="FCM not configured")
+        with get_session() as s:
+            tokens = list(s.execute(DeviceToken.__table__.select()).mappings())
+        sent = 0
+        for row in tokens:
+            try:
+                messaging.send(
+                    messaging.Message(
+                        notification=messaging.Notification(
+                            title="flipper тест", body="Ты в базе получателей ✅"
+                        ),
+                        data={"kind": "test"},
+                        token=row["token"],
+                    )
+                )
+                sent += 1
+            except Exception:
+                continue
+        return {"sent": sent}
+
     @app.get("/api/v1/notifications/tokens")
     def list_tokens(_=Depends(require_key), s: Session = Depends(get_session)):
         """Для отладки: сколько устройств получают пуши."""
