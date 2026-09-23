@@ -46,6 +46,25 @@ input:focus, select:focus { outline: none; border-color: var(--acc); }
 .app { max-width: 680px; margin: 0 auto; padding: 0 14px 92px; }
 .content { padding-top: 2px; }
 
+.push-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100vw - 28px), 560px);
+  z-index: 60;
+  display: block;
+  padding: 12px 16px;
+  background: var(--panel2);
+  border: 1px solid var(--acc);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  animation: push-in .25s ease;
+}
+.push-banner-title { font-weight: 600; color: var(--acc); }
+.push-banner-body { color: var(--text); font-size: 14px; margin-top: 2px; }
+@keyframes push-in { from { translate: 0 -14px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+
 header {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 14px 4px; position: sticky; top: 0; background: #0b0f14f2;

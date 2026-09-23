@@ -5,7 +5,7 @@ import { DealPage } from './pages/Deal'
 import { Feed } from './pages/Feed'
 import { Settings } from './pages/Settings'
 import { PushGate } from './push'
-import { initNativePush } from './push-native'
+import { initNativePush, onNativePush, type NativePush } from './push-native'
 
 export default function App() {
   const hostOk = typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost'
@@ -14,11 +14,21 @@ export default function App() {
   const [keyInp, setKeyInp] = useState(getKey())
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [nativePush, setNativePush] = useState<NativePush | null>(null)
   const loc = useLocation()
 
   useEffect(() => {
-    if (authed) initNativePush()
+    if (authed) {
+      initNativePush()
+      return onNativePush(setNativePush)
+    }
   }, [authed])
+
+  useEffect(() => {
+    if (!nativePush) return
+    const t = setTimeout(() => setNativePush(null), 7000)
+    return () => clearTimeout(t)
+  }, [nativePush])
 
   if (!authed) {
     return (
@@ -64,6 +74,16 @@ export default function App() {
 
   return (
     <div className="app">
+      {nativePush && (
+        <Link
+          className="push-banner"
+          to={nativePush.adId ? '/deal/' + nativePush.adId : '/'}
+          onClick={() => setNativePush(null)}
+        >
+          <div className="push-banner-title">{nativePush.title}</div>
+          {nativePush.body && <div className="push-banner-body">{nativePush.body}</div>}
+        </Link>
+      )}
       <header>
         <Link to="/" className="brand" onClick={() => window.dispatchEvent(new Event('flipper-refresh'))}>
           flipper
