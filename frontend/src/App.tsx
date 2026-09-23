@@ -7,8 +7,9 @@ import { Settings } from './pages/Settings'
 import { PushGate } from './push'
 
 export default function App() {
+  const hostOk = typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost'
   const [authed, setAuthed] = useState(Boolean(getKey()))
-  const [serverInp, setServerInp] = useState(getServer())
+  const [serverInp, setServerInp] = useState(getServer() || (hostOk ? window.location.origin : ''))
   const [keyInp, setKeyInp] = useState(getKey())
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
