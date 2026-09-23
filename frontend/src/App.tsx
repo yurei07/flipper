@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Route, Routes, useLocation, NavLink } from 'react-router-dom'
 import { api, clearAuth, getKey, getServer, setKey, setServer } from './lib/api'
 import { DealPage } from './pages/Deal'
 import { Feed } from './pages/Feed'
 import { Settings } from './pages/Settings'
 import { PushGate } from './push'
+import { initNativePush } from './push-native'
 
 export default function App() {
   const hostOk = typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost'
@@ -14,6 +15,10 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const loc = useLocation()
+
+  useEffect(() => {
+    if (authed) initNativePush()
+  }, [authed])
 
   if (!authed) {
     return (

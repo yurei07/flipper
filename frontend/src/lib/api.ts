@@ -152,6 +152,11 @@ export const api = {
     }),
   pushUnsubscribe: (endpoint: string) =>
     req(`/api/v1/push/unsubscribe?endpoint=${encodeURIComponent(endpoint)}`, { method: 'DELETE' }),
+  fcmRegister: (token: string, platform = 'android') =>
+    req('/api/v1/notifications/register', {
+      method: 'POST',
+      body: JSON.stringify({ fcm_token: token, platform }),
+    }),
   searchList: () => req('/api/v1/searches') as Promise<SearchRow[]>,
   searchCreate: (d: SearchDraft) =>
     req('/api/v1/searches', { method: 'POST', body: JSON.stringify(d) }),
