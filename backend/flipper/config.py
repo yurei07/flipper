@@ -65,6 +65,7 @@ class VintedConfig:
     per_page: int = 24
     max_requests_per_cycle: int = 8
     max_requests_per_hour: int = 0
+    analyze_requests_per_cycle: int = 0   # из цикла резервируем на дозагрузку деталей для анализа
     default_catalog_ids: list[int] = field(default_factory=list)
     searches: list[VintedSearchConfig] = field(default_factory=list)
 
@@ -181,6 +182,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
             per_page=vin.get("per_page", 24),
             max_requests_per_cycle=vin.get("max_requests_per_cycle", 8),
             max_requests_per_hour=vin.get("max_requests_per_hour", 0),
+            analyze_requests_per_cycle=vin.get("analyze_requests_per_cycle", 0),
             default_catalog_ids=vin.get("default_catalog_ids", []),
             searches=[
                 VintedSearchConfig(

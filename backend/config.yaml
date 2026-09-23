@@ -306,7 +306,8 @@ vinted:
   enabled: true
   domain: "https://www.vinted.de"
   per_page: 24
-  max_requests_per_cycle: 6    # бережём: свой скользящий лимит и паузы
+  max_requests_per_cycle: 11   # 6 уходят на поиски, 5 резерв на дозагрузку деталей для анализа
+  analyze_requests_per_cycle: 5
   max_requests_per_hour: 60
   default_catalog_ids: [2994]  # Elektronik: режет сумки/чехлы из других категорий
   searches:

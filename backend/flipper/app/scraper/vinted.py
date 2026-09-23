@@ -224,7 +224,10 @@ def scan_vinted(
     """Один проход по Vinted-поискам. Возвращает число НОВЫХ лотов."""
     new_count = 0
     seen_this_pass: set[int] = set()
-    budget = min(vin.max_requests_per_cycle, max_requests or vin.max_requests_per_cycle)
+    total = max_requests or vin.max_requests_per_cycle
+    # Поиски НЕ съедают бюджет целиком: часть запросов (analyze_requests_per_cycle)
+    # оставляем в цикле на дозагрузку деталей для анализа лотов (market_price).
+    budget = max(total - vin.analyze_requests_per_cycle, 0)
     excl_keywords, excl_title_keywords = effective_excludes(cfg_scraper)
     default_catalogs = vinted_default_catalogs_effective(vin)
     with get_session() as s:
