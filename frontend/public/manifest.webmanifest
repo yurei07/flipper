@@ -1,11 +1,11 @@
 {
-  "name": "flipper — сделки на Kleinanzeigen",
+  "name": "flipper — находки с Kleinanzeigen и Vinted",
   "short_name": "flipper",
   "description": "Лента выгодных лотов с анализом ИИ",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0d1117",
-  "theme_color": "#238636",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
   "icons": [
     { "src": "/icons.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]

@@ -191,6 +191,25 @@ def test_vinted_catalogs_endpoint(api, headers):
     assert "2994" in catalog_ids
 
 
+def test_listings_saved_filter(api, headers):
+    _seed_listing(111, "saved lot"); _seed_analysis(111)
+    _seed_listing(222, "plain"); _seed_analysis(222)
+    api.post("/api/v1/listings/111/saved", headers=headers)
+    rows = api.get("/api/v1/listings", headers=headers, params={"saved": True}).json()
+    assert [r["ad_id"] for r in rows] == [111]
+    assert rows[0]["saved"] is True
+
+
+def test_cors_headers_present(api, headers):
+    r = api.options(
+        "/api/v1/listings",
+        headers={**headers, "Origin": "capacitor://localhost",
+                 "Access-Control-Request-Method": "GET"},
+    )
+    assert r.status_code == 200
+    assert r.headers.get("access-control-allow-origin") in ("*", "capacitor://localhost")
+
+
 def test_listings_created_after_hours(api, headers):
     from datetime import datetime, timedelta
 

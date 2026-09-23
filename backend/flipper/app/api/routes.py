@@ -93,6 +93,19 @@ def make_app(lifespan=None) -> FastAPI:
     app = FastAPI(title="flipper", version="0.1.0", lifespan=lifespan)
     init_db(cfg.db.url)
 
+    # CORS для Android APK (Capacitor WebView грузится с capacitor://localhost)
+    # и для браузера с другого origin. Аутентификация — Bearer-токен, не куки,
+    # поэтому `allow_credentials=False` и открытый список origin безопасны.
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     # --- Bearer-авторизация (один пользователь) ---
     bearer = HTTPBearer(auto_error=False)
 
@@ -109,6 +122,7 @@ def make_app(lifespan=None) -> FastAPI:
         verdict: str | None = None,
         min_margin: float = 0.0,
         created_after_hours: float = 0.0,
+        saved: bool = False,
         limit: int = 50,
         offset: int = 0,
         _=Depends(require_key),
@@ -136,6 +150,8 @@ def make_app(lifespan=None) -> FastAPI:
             select(UserAction).order_by(UserAction.at.desc())
         ).scalars().all():
             actions.setdefault(ua.listing_id, ua.action)  # первое (свежайшее) побеждает
+        if saved:
+            rows = [a for a in rows if actions.get(a.listing_id) == "saved"]
         return [
             {
                 "ad_id": a.listing_id,

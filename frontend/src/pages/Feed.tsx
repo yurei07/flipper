@@ -1,125 +1,197 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, downloadCsv, eur, SOURCE_LABEL, VERDICT_ICON, VERDICT_TEXT, type FeedItem } from '../lib/api'
+import { api, eur, SOURCE_LABEL, VERDICT_ICON, type FeedItem } from '../lib/api'
 
-const PAGE = 40
+const PAGE = 30
 const HOUR_OPTIONS = [
-  { v: 0, label: 'за всё время' },
-  { v: 24, label: 'за 24 ч' },
-  { v: 72, label: 'за 72 ч' },
-  { v: 168, label: 'за 7 дней' },
+  { v: 0, label: 'всё время' },
+  { v: 24, label: '24 ч' },
+  { v: 72, label: '72 ч' },
+  { v: 168, label: '7 дней' },
+]
+const VERDICTS: { v: string; icon: string; label: string }[] = [
+  { v: '', icon: '●', label: 'все' },
+  { v: 'TAKE', icon: '🟢', label: 'брать' },
+  { v: 'MAYBE', icon: '🟡', label: 'посмотреть' },
+  { v: 'SKIP', icon: '⚪', label: 'мимо' },
 ]
 
-export function Feed() {
+function relTime(iso: string | null): string {
+  if (!iso) return ''
+  const ms = Date.now() - new Date(iso).getTime()
+  const h = Math.floor(ms / 3_600_000)
+  if (h < 1) return 'только что'
+  if (h < 24) return `${h} ч назад`
+  return `${Math.floor(h / 24)} дн назад`
+}
+
+export function Feed({ savedOnly = false }: { savedOnly?: boolean }) {
   const [items, setItems] = useState<FeedItem[]>([])
-  const [verdict, setVerdict] = useState<string>('')
-  const [minMargin, setMinMargin] = useState(0)
+  const [verdict, setVerdict] = useState('')
   const [q, setQ] = useState('')
   const [hours, setHours] = useState(0)
   const [off, setOff] = useState(0)
-  const [stats, setStats] = useState<{ total_listings: number; verdicts: Record<string, number> } | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [total, setTotal] = useState(0)
   const [err, setErr] = useState('')
 
-  const load = useCallback(
-    async (start = 0, useQ?: string, useV?: string, useMargin?: number, useHours?: number) => {
+  const params = useMemo(
+    () => ({
+      verdict,
+      created_after_hours: hours,
+      limit: PAGE,
+      saved: savedOnly,
+    }),
+    [verdict, hours, savedOnly],
+  )
+
+  const loadMore = useCallback(
+    async (start: number, append: boolean) => {
       try {
-        let rows = await api.feed({
-          verdict: useV || verdict,
-          min_margin: useMargin ?? minMargin,
-          created_after_hours: useHours ?? hours,
-          limit: PAGE,
-          offset: start,
-        })
-        if (useQ ?? q) {
-          const needle = (useQ ?? q).toLowerCase()
-          rows = rows.filter((r) => r.title.toLowerCase().includes(needle))
+        const rows = await api.feed({ ...params, offset: start })
+        let shown = rows
+        const needle = q.trim().toLowerCase()
+        if (needle) {
+          shown = rows.filter((r) => r.title.toLowerCase().includes(needle))
         }
-        setItems(rows)
-        setOff(start)
+        setItems((prev) => (append ? [...prev, ...shown] : shown))
+        setOff(start + shown.length)
+        setHasMore(rows.length >= PAGE)
         setErr('')
-        api.stats().then(setStats).catch(() => {})
+        if (!savedOnly) api.stats().then((st) => setTotal(st.total_listings)).catch(() => {})
       } catch (e: any) {
         setErr(e.message || 'ошибка загрузки')
       }
     },
-    [verdict, minMargin, q, hours],
+    [params, q, savedOnly],
   )
 
   useEffect(() => {
-    load(0)
-    const onRefresh = () => load(0)
+    loadMore(0, false)
+  }, [loadMore])
+
+  useEffect(() => {
+    const onRefresh = () => loadMore(0, false)
     window.addEventListener('flipper-refresh', onRefresh)
-    const t = setInterval(() => load(off), 90_000)
+    const t = setInterval(onRefresh, 90_000)
     return () => {
       window.removeEventListener('flipper-refresh', onRefresh)
       clearInterval(t)
     }
-  }, [load])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadMore])
 
   const act = async (id: number, action: 'saved' | 'ignored' | 'dismissed') => {
     try {
       await api.act(id, action)
-      setItems((prev) => prev.map((i) => (i.ad_id === id ? { ...i, saved: action === 'saved', ignored: action !== 'saved' } : i)))
-    } catch {}
+      setItems((xs) =>
+        xs.map((x) =>
+          x.ad_id === id
+            ? { ...x, saved: action === 'saved', ignored: ['ignored', 'dismissed'].includes(action) }
+            : x,
+        ),
+      )
+      if (savedOnly && action !== 'saved') {
+        setItems((xs) => xs.filter((x) => x.ad_id !== id))
+      }
+    } catch (e: any) {
+      setErr(e.message || 'ошибка действия')
+    }
   }
 
   return (
-    <main>
+    <>
       <div className="toolbar">
-        <select value={verdict} onChange={(e) => { setVerdict(e.target.value); load(0, q, e.target.value, minMargin, hours) }}>
-          <option value="">все вердикты</option>
-          <option value="TAKE">🟢 TAKE</option>
-          <option value="MAYBE">🟡 MAYBE</option>
-          <option value="SKIP">⚪ SKIP</option>
+        <select value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+          {HOUR_OPTIONS.map((h) => (
+            <option key={h.v} value={h.v}>
+              {h.label}
+            </option>
+          ))}
         </select>
-        <select value={hours} onChange={(e) => { setHours(Number(e.target.value)); load(0, q, verdict, minMargin, Number(e.target.value)) }}>
-          {HOUR_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-        </select>
-        <input type="number" placeholder="мин. маржа €" value={minMargin || ''}
-          onChange={(e) => { const v = Number(e.target.value) || 0; setMinMargin(v); load(0, q, verdict, v, hours) }} />
-        <input placeholder="поиск по названию"
+        <input
+          type="text"
+          placeholder="поиск по названию"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') load(0) }} />
-        <button title="Скачать CSV текущего списка" onClick={() => downloadCsv(verdict, minMargin)}>⬇ CSV</button>
-        {stats && <span className="stats">📦 {stats.total_listings} · 🟢{stats.verdicts.TAKE ?? 0} 🟡{stats.verdicts.MAYBE ?? 0}</span>}
+        />
+        <button title="обновить" onClick={() => loadMore(0, false)}>
+          ⟳
+        </button>
+        {!savedOnly && total > 0 && <span className="stats">лента: {total}</span>}
       </div>
+
+      <div className="verdict-row">
+        {VERDICTS.map((v) => (
+          <button
+            key={v.v}
+            className={'verdict-chip' + (verdict === v.v ? ' on' : '')}
+            onClick={() => setVerdict(v.v)}
+          >
+            <span className="vicon">{v.icon}</span>
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {savedOnly && <div className="dim title-line">Сохранённые лоты (последнее действие)</div>}
 
       {err && <div className="err">{err}</div>}
 
       <div className="grid">
         {items.map((it) => (
-          <article className="card" key={it.ad_id}>
-            <Link to={`/deal/${it.ad_id}`} className="thumb">
-              {it.image_url ? <img src={it.image_url} loading="lazy" alt="" /> : <div className="noimg">📷</div>}
-            </Link>
+          <Link to={`/deal/${it.ad_id}`} className="card" key={it.ad_id}>
+            <div className="thumb">
+              {it.image_url ? <img src={it.image_url} loading="lazy" alt="" /> : <span className="noimg">◈</span>}
+              <span className={`badge src-${it.source}`}>{SOURCE_LABEL[it.source] || it.source}</span>
+              <span className={`verdict-ribbon ${it.verdict.toLowerCase()}`}>
+                {VERDICT_ICON[it.verdict]} {it.verdict}
+              </span>
+            </div>
             <div className="body">
-              <Link to={`/deal/${it.ad_id}`} className="title">{it.title}</Link>
-              <div className="meta">
-                <b className={it.verdict.toLowerCase()}>{VERDICT_ICON[it.verdict]} {VERDICT_TEXT[it.verdict]}</b>
-                <span>+{it.margin_eur.toFixed(0)}€ ({it.margin_pct.toFixed(0)}%)</span>
-                {it.market_estimated && <span className="badge" title="мало лотов-аналогов: оценка ИИ, а не рынок">оценочно</span>}
+              <div className="deal-price">
+                <b>{eur(it.price_cents)}</b>
+                <span className={'marg' + (it.margin_eur >= 0 ? ' ok' : ' bad')}>
+                  +{it.margin_eur.toFixed(0)}€ ({it.margin_pct.toFixed(0)}%)
+                </span>
               </div>
+              <div className="title">{it.title}</div>
               <div className="meta dim">
-                <span>{eur(it.price_cents)} · {it.location_city || (it.source === 'vinted' ? 'vinted' : '')}</span>
-                {it.source && <span className={`badge src-${it.source}`} title={it.source}>{SOURCE_LABEL[it.source] || it.source}</span>}
+                <span className="dim">{it.location_city || '—'}</span>
+                {it.market_estimated && <span title="рынок по малой выборке">~</span>}
+                <span className="dim">{relTime(it.created_at)}</span>
               </div>
               <div className="actions">
-                <button title="беру/отложил" className={it.saved ? 'on saved' : ''} onClick={() => act(it.ad_id, 'saved')}>⭐ <small>{it.saved ? 'взял' : 'беру'}</small></button>
-                <button title="игнорировать" className={it.ignored ? 'on ign' : ''} onClick={() => act(it.ad_id, 'ignored')}>🚫 <small>{it.ignored ? 'скрыт' : 'мимо'}</small></button>
+                <button
+                  className={'act' + (it.saved ? ' on saved' : '')}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    act(it.ad_id, 'saved')
+                  }}
+                >
+                  {it.saved ? '★ сохранён' : '☆'}
+                </button>
+                <button
+                  className={'act' + (it.ignored ? ' on ign' : '')}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    act(it.ad_id, 'ignored')
+                  }}
+                >
+                  ☓
+                </button>
               </div>
             </div>
-          </article>
+          </Link>
         ))}
-        {items.length === 0 && <div className="empty">Пусто. Новые TAKE/MAYBE появятся здесь после цикла сканирования.</div>}
+        {!items.length && !err && <div className="empty">{savedOnly ? 'пока нет сохранённых' : 'ничего не найдено'}</div>}
       </div>
 
-      {items.length === PAGE && (
+      {hasMore && (
         <div className="pager">
-          <button disabled={off === 0} onClick={() => load(Math.max(0, off - PAGE))}>← назад</button>
-          <button onClick={() => load(off + PAGE)}>дальше →</button>
+          <button onClick={() => loadMore(off, true)}>показать ещё</button>
         </div>
       )}
-    </main>
+    </>
   )
 }

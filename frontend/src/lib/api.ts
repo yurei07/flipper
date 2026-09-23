@@ -43,12 +43,25 @@ export interface Deal {
 }
 
 const KEY = 'flipper_api_key'
+const SERVER = 'flipper_server'
 
 export function getKey(): string {
   return localStorage.getItem(KEY) || ''
 }
 export function setKey(k: string) {
   localStorage.setItem(KEY, k)
+}
+export function clearAuth() {
+  localStorage.removeItem(KEY)
+  localStorage.removeItem(SERVER)
+}
+export function getServer(): string {
+  return localStorage.getItem(SERVER) || ''
+}
+export function setServer(s: string) {
+  const v = s.trim().replace(/\/+$/, '')
+  if (v) localStorage.setItem(SERVER, v)
+  else localStorage.removeItem(SERVER)
 }
 
 async function req(path: string, init: RequestInit = {}): Promise<any> {
@@ -57,7 +70,9 @@ async function req(path: string, init: RequestInit = {}): Promise<any> {
     ...((init.headers as Record<string, string>) || {}),
   }
   if (init.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
-  const res = await fetch(path, { ...init, headers })
+  const base = getServer()
+  const url = base ? `${base}${path}` : path
+  const res = await fetch(url, { ...init, headers })
   if (res.status === 401) throw new ApiError('unauthorized')
   if (!res.ok) throw new ApiError(`${path}: ${res.status}`)
   return res.json()
@@ -108,6 +123,7 @@ export interface FeedParams {
   verdict?: string
   min_margin?: number
   created_after_hours?: number
+  saved?: boolean
   limit?: number
   offset?: number
 }
@@ -118,6 +134,7 @@ export const api = {
     if (params.verdict) p.set('verdict', params.verdict)
     if (params.min_margin) p.set('min_margin', String(params.min_margin))
     if (params.created_after_hours) p.set('created_after_hours', String(params.created_after_hours))
+    if (params.saved) p.set('saved', 'true')
     if (params.limit) p.set('limit', String(params.limit))
     if (params.offset) p.set('offset', String(params.offset))
     return req(`/api/v1/listings?${p}`) as Promise<FeedItem[]>

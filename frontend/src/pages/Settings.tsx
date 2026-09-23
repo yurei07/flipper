@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   api,
+  clearAuth,
+  getServer,
+  setServer,
   type AppSettings,
   type SearchDraft,
   type SearchRow,
@@ -204,6 +207,7 @@ export function Settings() {
   const [adding, setAdding] = useState<SearchRow | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [msg, setMsg] = useState('')
+  const [serverInp, setServerInp] = useState(getServer())
 
   const load = useCallback(async () => {
     try {
@@ -262,6 +266,44 @@ export function Settings() {
         <span className="stats">настройки</span>
       </div>
       {msg && <div className="ok">{msg}</div>}
+
+      <section>
+        <h2>Сервер и доступ</h2>
+        <div className="srow">
+          <span className="s-query">Адрес сервера</span>
+          <input
+            placeholder="https://… (пусто = этот адрес)"
+            value={serverInp}
+            autoCapitalize="none"
+            autoCorrect="off"
+            onChange={(e) => setServerInp(e.target.value)}
+          />
+          <button
+            className="btn-pri"
+            onClick={() => {
+              setServer(serverInp)
+              setMsg('сохранено')
+            }}
+          >
+            Сохранить
+          </button>
+        </div>
+        <div className="srow">
+          <span className="s-query">Сессия</span>
+          <button
+            className="danger"
+            onClick={() => {
+              clearAuth()
+              window.location.reload()
+            }}
+          >
+            Выйти
+          </button>
+        </div>
+        <div className="dim">
+          Вне домашнего Wi-Fi укажи стабильный https-адрес туннеля (nazariipalahnii.com).
+        </div>
+      </section>
 
       <section>
         <h2>Поиски — Kleinanzeigen</h2>
