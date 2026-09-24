@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re as _re
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -120,20 +121,33 @@ def recompute_verdict(
 # Аксессуар / «не устройство»: чехол, защитное стекло, кабель, док и т.п.
 # Такие лоты модель иногда «додумывает» до ремонта и выдаёт псевдо-TAKE —
 # здесь их режем детерминированно, без LLM.
-_ACCESSORY_TERMS = (
-    "hülle", "handyhülle", "schutzhülle", "case", "cover", "bumper", "etui",
-    "bookcase", "booklet", "schutzfolie", "schutzglas", "panzerglas",
-    "displayschutz", "displayschutzfolie", "screen protector", "kabel",
-    "ladekabel", "netzteil", "ladegerät", "charger", "dock", "dockingstation",
-    "ständer", "halterung", "standfuß", "mount", "grip", "tasche", "pouch",
-    "sleeve", "tastatur", "keyboard", "maus", "clutch", "folie", "hülsen",
+#
+# _HARD_ACCESSORY_TERMS — «непременные» аксессуары: слово целым токеном в любом
+# месте заголовка → SKIP, даже если модель упомянута рядом («iPhone 13 hoesje»,
+# «Châssis iPhone 13 bleu» — это чехлы/корпуса, а не телефоны). Vinted шлёт
+# объявления на нескольких языках (нид./фр.), поэтому у терминов много вариантов.
+_HARD_ACCESSORY_TERMS = (
+    "handyhülle", "schutzhülle", "hülle", "case", "cover", "coque", "etui",
+    "bookcase", "booklet", "funda", "housse", "pouch", "bumper", "hoesje",
+    "telefoonhoesje", "chassis", "châssis", "carcasse", "batterie", "batterij",
+    "accu", "chargeur", "ladegerät", "netzteil", "schutzglas", "panzerglas",
+    "displayfolie", "displayschutz", "displayschutzfolie", "screen protector",
+)
+# «Мягкие» аксессуары: режутся только без упоминания устройства или в начале
+# заголовка (и «iPhone mit Kabel» — не смартфон без кабеля, тут осторожнее).
+_SOFT_ACCESSORY_TERMS = (
+    "kabel", "ladekabel", "charger", "dock", "dockingstation", "ständer",
+    "halterung", "standfuß", "mount", "grip", "tasche", "sleeve", "tastatur",
+    "keyboard", "maus", "clutch", "folie", "hülsen", "kissen", "muis", "jeux",
+    "spiele", "stylus", "pen", "karton", "anleitung",
 )
 _DEVICE_TERMS = (
     "iphone", "ipad", "macbook", "imac", "laptop", "notebook", "thinkpad",
     "tablet", "galaxy", "pixel", "oneplus", "smartphone", "handy", "phone",
     "monitor", "display", "fernseher", "konsole", "playstation", "xbox",
     "switch", "drucker", "kaffeevollautomat", "grafikarte", "rtx", "gtx",
-    "mainboard", "gaming", "cpu", "mac mini", "airpods", "heads",
+    "mainboard", "cpu", "mac mini", "airpods", "heads", "kamera", "objektiv",
+    "camcorder", "canon", "nikon", "sony", "fujifilm", "leica", "pentax", "olympus",
 )
 
 
@@ -142,17 +156,26 @@ def _accessory_skip(listing) -> str | None:
     title = (listing.title or "").strip().lower()
     if not title:
         return None
-    # Аксессуар в начале заголовка («Handyhülle iPhone 13», «Case für iPad») —
-    # признак аксессуара, даже если модель устройства упомянута ниже.
+    # Аксессуар в начале заголовка («Handyhülle iPhone 13», «Case für iPad»,
+    # «Batterie iPhone 13») — признак аксессуара, даже если ниже модель устройства.
+    # «Жёстким» разрешаем префикс (сложносоставные handyhülle/schutzglas),
+    # «мягкие» — только точным совпадением токена, чтобы не словить «Spielekonsole».
     first = title.split()[0].rstrip(",;:()-/")
-    for a in _ACCESSORY_TERMS:
+    for a in _HARD_ACCESSORY_TERMS:
         if first == a or first.startswith(a):
             return f"аксессуар в начале заголовка: {title[:80]}"
+    for a in _SOFT_ACCESSORY_TERMS:
+        if first == a:
+            return f"аксессуар в начале заголовка: {title[:80]}"
     # Аксессуар в заголовке и упоминаний устройства нет вообще
-    if any(a in title for a in _ACCESSORY_TERMS) and not any(
+    if any(a in title for a in (*_HARD_ACCESSORY_TERMS, *_SOFT_ACCESSORY_TERMS)) and not any(
         d in title for d in _DEVICE_TERMS
     ):
         return f"аксессуар без устройства: {title[:80]}"
+    # «Непременный» аксессуар целым словом в любом месте — даже если рядом модель
+    # («iPhone 13 hoesje» — чехол, а не 169€ маржи).
+    if any(_re.search(rf"\b{a}\b", title) for a in _HARD_ACCESSORY_TERMS):
+        return f"аксессуар целым словом: {title[:80]}"
     return None
 
 

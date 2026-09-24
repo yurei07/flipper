@@ -298,6 +298,17 @@ scraper:
     - "spiele"
     - "pullover"
     - "anleitung"
+    # Многоязычные аксессуары, что сыпятся с Vinted (нид./фр.): чехлы/корпуса/АКБ
+    - "hoesje"
+    - "telefoonhoesje"
+    - "chassis"
+    - "châssis"
+    - "carcasse"
+    - "batterie"
+    - "batterij"
+    - "chargeur"
+    - "jeux"
+    - "muis"
 
 # ===== Vinted — второй источник (своя дисциплина anti-ban) =====
 # Категории и бренды на Vinted реально работают (attribute_ids), поэтому

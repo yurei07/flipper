@@ -101,6 +101,25 @@ def test_accessory_skip_rules():
     assert _accessory_skip(_listing("iPhone XS 64GB defekt", ad_id=25)) is None
 
 
+def test_accessory_skip_multilingual_vinted():
+    for title, ad_id in [
+        ("iPhone 13 hoesje", 30),
+        ("hoesjes iphone 12", 31),
+        ("Châssis iPhone 13 bleu", 32),
+        ("Batterie iPhone 13 officiel 87%", 33),
+        ("Imoshion telefoonhoesje Google Pixel pro", 34),
+        ("Nieuw TPU hoesje Samsung Galaxy Watch 5", 35),
+        ("Jeux xbox 360 final fantasy", 36),
+    ]:
+        assert _accessory_skip(_listing(title, ad_id=ad_id)) is not None
+
+
+def test_accessory_skip_does_not_hit_real_devices():
+    assert _accessory_skip(_listing("2x Canon AF35M Analogkamera Set – Defekt", ad_id=40)) is None
+    assert _accessory_skip(_listing("Spielekonsole Nintendo Switch", ad_id=41)) is None
+    assert _accessory_skip(_listing("Canon EOS 600D mit Objektiv", ad_id=42)) is None
+
+
 def test_estimated_analysis_column_defaults_false():
     with get_session() as s:
         s.add(
