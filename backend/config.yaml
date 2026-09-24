@@ -10,7 +10,7 @@ scraper:
   detail_delay_sec: [2, 6]   # пауза между запросами детальных страниц (рандом)
   # --- Бюджет запросов за один цикл (защита от бана, §2) ---
   max_requests_per_cycle: 30 # общий лимит, дальше цикл заканчивается
-  analyze_per_cycle: 4       # сколько объявлений анализировать за цикл (лимит TPM Groq)
+  analyze_per_cycle: 5       # сколько объявлений анализировать за цикл (лимит TPM Groq)
   enrich_per_cycle: 3        # сколько деталей добирать за цикл
   # MAYBE-лоты старше N дней пересматриваем заново (цена могла упасть -> TAKE),
   # по reanalyze_maybe_per_cycle штук за цикл, чтобы не жечь TPM.
@@ -356,7 +356,7 @@ vinted:
 # ===== Анализатор (LLM) =====
 analyzer:
   provider: groq             # local | groq | openrouter | cerebras | together
-  model: "qwen/qwen3.8-27b"
+  model: "openai/gpt-oss-120b"
   base_url: "https://api.groq.com/openai/v1"
   api_key: ""                # лучше через .env: GROQ_API_KEY или FLIPPER_LLM_API_KEY
   api_key_env: "GROQ_API_KEY"

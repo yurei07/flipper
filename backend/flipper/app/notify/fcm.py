@@ -54,6 +54,66 @@ def _notification_payload(a: Analysis) -> dict | None:
     return {"title": title, "body": body, "data": {"ad_id": str(a.listing_id), "kind": "deal"}}
 
 
+def _fluent_tokens(s) -> list[dict]:
+    """Все зарегистрированные DeviceToken как mappings."""
+    return list(s.execute(DeviceToken.__table__.select()).mappings())
+
+
+def _is_unregistered(e: Exception) -> bool:
+    """Firebase сообщает, что токен протух (апп удалён/переустановлен) — такой удаляем."""
+    name = type(e).__name__.lower()
+    if "unregistered" in name or "notfound" in name:
+        return True
+    code = str(getattr(e, "code", "")).lower()
+    return any(x in code for x in ("token-not-registered", "invalid-registration-token", "invalid-argument"))
+
+
+def _forget_tokens(rows: list[dict]) -> None:
+    """Удаляем протухшие токены из БД."""
+    if not rows:
+        return
+    with get_session() as s:
+        for row in rows:
+            s.execute(DeviceToken.__table__.delete().where(DeviceToken.token == row["token"]))
+        s.commit()
+    log.info("протухшие токены удалены: %d", len(rows))
+
+
+def _send_to_rows(messaging, payload: dict, rows: list[dict], kind: str) -> int:
+    """Отправка по токенам; мёртвые токены вычищаются. Возвращает число успешных."""
+    sent = 0
+    bad: list[dict] = []
+    for row in rows:
+        try:
+            msg = messaging.Message(
+                notification=messaging.Notification(title=payload["title"], body=payload["body"]),
+                data=payload["data"],
+                token=row["token"],
+            )
+            messaging.send(msg)
+            sent += 1
+        except Exception as e:
+            if _is_unregistered(e):
+                bad.append(row)
+            log.warning("%s на %s не ушёл: %s", kind, row["token"][:16], e)
+    if bad:
+        _forget_tokens(bad)
+    return sent
+
+
+def send_to_all(title: str = "flipper тест", body: str = "Ты в базе получателей ✅") -> int:
+    """Тестовый пуш всем зарегистрированным устройствам (API /notifications/test)."""
+    messaging = _get_messaging()
+    if messaging is None:
+        return 0
+    with get_session() as s:
+        rows = _fluent_tokens(s)
+    if not rows:
+        return 0
+    payload = {"title": title, "body": body, "data": {"kind": "test"}}
+    return _send_to_rows(messaging, payload, rows, "тест-пуш")
+
+
 def maybe_notify(a: Analysis, deal: DealConfig) -> bool:
     """Решает по §9, стоит ли пучить, и пучит.
 
@@ -71,23 +131,12 @@ def send_deal_notification(a: Analysis) -> bool:
         return False
 
     with get_session() as s:
-        tokens = list(s.execute(DeviceToken.__table__.select()).mappings())
-    if not tokens:
+        rows = _fluent_tokens(s)
+    if not rows:
         log.info("пуш для %s: нет зарегистрированных устройств", a.listing_id)
         return False
 
     payload = _notification_payload(a)
-    sent = 0
-    for row in tokens:
-        try:
-            msg = messaging.Message(
-                notification=messaging.Notification(title=payload["title"], body=payload["body"]),
-                data=payload["data"],
-                token=row["token"],
-            )
-            messaging.send(msg)
-            sent += 1
-        except Exception as e:
-            log.warning("пуш на %s не ушёл: %s", row["token"][:16], e)
+    sent = _send_to_rows(messaging, payload, rows, "пуш")
     log.info("пуш %s: отправлено на %d устройств", a.listing_id, sent)
     return sent > 0

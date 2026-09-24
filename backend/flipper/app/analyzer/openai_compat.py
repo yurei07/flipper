@@ -64,7 +64,7 @@ class OpenAICompatProvider(Provider):
                 {"role": "user", "content": user},
             ],
             "temperature": self.temperature,
-            "max_tokens": 800,  # ответ — компактный JSON; экономим TPM лимит
+            "max_tokens": 2500,  # ответ — компактный JSON, но gpt-oss тратит часть на reasoning
             "stream": False,
         }
         last_err: Exception | None = None

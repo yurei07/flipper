@@ -117,6 +117,45 @@ def recompute_verdict(
     return margin_eur, margin_pct, verdict
 
 
+# Аксессуар / «не устройство»: чехол, защитное стекло, кабель, док и т.п.
+# Такие лоты модель иногда «додумывает» до ремонта и выдаёт псевдо-TAKE —
+# здесь их режем детерминированно, без LLM.
+_ACCESSORY_TERMS = (
+    "hülle", "handyhülle", "schutzhülle", "case", "cover", "bumper", "etui",
+    "bookcase", "booklet", "schutzfolie", "schutzglas", "panzerglas",
+    "displayschutz", "displayschutzfolie", "screen protector", "kabel",
+    "ladekabel", "netzteil", "ladegerät", "charger", "dock", "dockingstation",
+    "ständer", "halterung", "standfuß", "mount", "grip", "tasche", "pouch",
+    "sleeve", "tastatur", "keyboard", "maus", "clutch", "folie", "hülsen",
+)
+_DEVICE_TERMS = (
+    "iphone", "ipad", "macbook", "imac", "laptop", "notebook", "thinkpad",
+    "tablet", "galaxy", "pixel", "oneplus", "smartphone", "handy", "phone",
+    "monitor", "display", "fernseher", "konsole", "playstation", "xbox",
+    "switch", "drucker", "kaffeevollautomat", "grafikarte", "rtx", "gtx",
+    "mainboard", "gaming", "cpu", "mac mini", "airpods", "heads",
+)
+
+
+def _accessory_skip(listing) -> str | None:
+    """Если лот — чисто аксессуар (нет устройства). Возвращает причину SKIP."""
+    title = (listing.title or "").strip().lower()
+    if not title:
+        return None
+    # Аксессуар в начале заголовка («Handyhülle iPhone 13», «Case für iPad») —
+    # признак аксессуара, даже если модель устройства упомянута ниже.
+    first = title.split()[0].rstrip(",;:()-/")
+    for a in _ACCESSORY_TERMS:
+        if first == a or first.startswith(a):
+            return f"аксессуар в начале заголовка: {title[:80]}"
+    # Аксессуар в заголовке и упоминаний устройства нет вообще
+    if any(a in title for a in _ACCESSORY_TERMS) and not any(
+        d in title for d in _DEVICE_TERMS
+    ):
+        return f"аксессуар без устройства: {title[:80]}"
+    return None
+
+
 def run_on_listing(
     listing_id: int,
     provider: Provider,
@@ -131,6 +170,30 @@ def run_on_listing(
         if listing is None:
             log.warning("листинг %s не найден", listing_id)
             return None
+        acc = _accessory_skip(listing)
+        if acc:
+            log.info("аксессуар %s — SKIP без LLM", listing.ad_id)
+            analysis = Analysis(
+                listing_id=listing.ad_id,
+                flip_type="resale",
+                device_json={"type": "accessory", "brand": "", "model": "", "specs_hint": acc},
+                fault_json=None,
+                repairability_json=None,
+                parts_cost_eur=0.0,
+                market_working_eur=None,
+                market_estimated=False,
+                margin_eur=0.0,
+                margin_pct=0.0,
+                verdict="SKIP",
+                confidence=1.0,
+                pros_ru_json=[],
+                cons_ru_json=[acc],
+                action_ru="это аксессуар, а не устройство — лот не для нас",
+                raw_json={},
+            )
+            s.add(analysis)
+            s.commit()
+            return analysis
         res = analyze_listing(listing, provider)
         _normalize_flip(res, listing)
 
@@ -235,21 +298,44 @@ def prune_stale_maybes(days: float, limit: int = 2) -> int:
     return 0
 
 
-def _pending_query(s, analyzed_ids: set, limit: int) -> list[Listing]:
-    """Открытые лоты без анализа и без пустого описания. Свежие первыми:
-    быть быстрее конкурента на недооценённых объявлениях."""
-    return (
+def _pending_for_source(s, analyzed_ids: set, source: str, take: int) -> list[Listing]:
+    """Самые СТАРЫЕ лоты источника без анализа (по справедливости между каналами)."""
+    return list(
         s.execute(
             select(Listing)
             .where(
                 Listing.status == "active",
+                Listing.source == source,
                 ~Listing.ad_id.in_(analyzed_ids),
                 Listing.description != "",
             )
-            .order_by(Listing.first_seen_at.desc())
-            .limit(limit)
+            .order_by(Listing.first_seen_at.asc())
+            .limit(take)
         ).scalars().all()
     )
+
+
+def _pending_split(s, analyzed_ids: set, limit: int, order_sources: list[str]) -> list[Listing]:
+    """Справедливый отбор: limit слотов чередуем по источникам с очередью.
+
+    Раньше выборка шла «свежие первыми» по всем источникам сразу, и Vinted
+    (сканируется после Kleinanzeigen в цикле) забирал почти все слоты — у KK
+    анализ голодал, уведомлений от него не было. Теперь слоты делятся поровну.
+    """
+    pools = {
+        src: _pending_for_source(s, analyzed_ids, src, limit) for src in order_sources
+    }
+    out: list[Listing] = []
+    while len(out) < limit:
+        before = len(out)
+        for src in order_sources:
+            if len(out) >= limit:
+                break
+            if pools[src]:
+                out.append(pools[src].pop(0))
+        if len(out) == before:
+            break  # во всех пулах пусто
+    return out
 
 
 def analyze_pending(
@@ -276,7 +362,15 @@ def analyze_pending(
         analyzed_ids = set(
             s.execute(select(Analysis.listing_id)).scalars().all()
         )
-        pending = _pending_query(s, analyzed_ids, limit)
+        # Ротация первого источника каждый цикл (период ~ poll_interval):
+        # оба канала гарантированно получают слоты, ни один не голодает.
+        flip = int(time.time() // 900) % 2
+        order = (
+            ["kleinanzeigen", SOURCE_VINTED]
+            if flip == 0
+            else [SOURCE_VINTED, "kleinanzeigen"]
+        )
+        pending = _pending_split(s, analyzed_ids, limit, order)
 
     results = []
     for listing in pending:

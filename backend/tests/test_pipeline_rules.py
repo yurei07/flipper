@@ -8,7 +8,7 @@ import pytest
 from flipper.app.analyzer.schema import AnalysisResult, Fault, FlipType, Verdict
 from flipper.app.db import get_session, init_db
 from flipper.app.models import STATUS_ACTIVE, Analysis, Listing
-from flipper.app.pipeline import _normalize_flip, _pending_query
+from flipper.app.pipeline import _normalize_flip, _accessory_skip, _pending_split
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +17,7 @@ def _db():
     yield
 
 
-def _listing(title, description="", ad_id=1, first_seen=None):
+def _listing(title, description="", ad_id=1, first_seen=None, source="kleinanzeigen"):
     return Listing(
         ad_id=ad_id,
         title=title,
@@ -25,6 +25,7 @@ def _listing(title, description="", ad_id=1, first_seen=None):
         status=STATUS_ACTIVE,
         description=description,
         first_seen_at=first_seen or datetime.utcnow(),
+        source=source,
     )
 
 
@@ -77,15 +78,27 @@ def test_flip_kept_for_real_repair():
     assert res.flip_type == FlipType.repair
 
 
-def test_analyze_pending_orders_newest_first():
+def test_pending_split_fair_across_sources_oldest_first():
     with get_session() as s:
-        old = _listing("A", "opis", ad_id=10, first_seen=datetime.utcnow() - timedelta(days=3))
-        new = _listing("B", "opis", ad_id=11, first_seen=datetime.utcnow())
-        mid = _listing("C", "opis", ad_id=12, first_seen=datetime.utcnow() - timedelta(days=1))
-        s.add_all([old, mid, new])
+        old_kk = _listing("A", "opis", ad_id=10, first_seen=datetime.utcnow() - timedelta(days=3))
+        new_kk = _listing("B", "opis", ad_id=11, first_seen=datetime.utcnow())
+        vin = _listing("C", "opis", ad_id=12, first_seen=datetime.utcnow() - timedelta(hours=1), source="vinted")
+        s.add_all([old_kk, new_kk, vin])
         s.commit()
-        pending = _pending_query(s, set(), limit=10)
-        assert [p.ad_id for p in pending] == [11, 12, 10]
+        pending = _pending_split(s, set(), limit=10, order_sources=["kleinanzeigen", "vinted"])
+        ids = [p.ad_id for p in pending]
+        assert ids[0] == 10  # первым — самый старый kleinanzeigen
+        assert 12 in ids     # чередование дотащило и vinted
+        assert len(ids) == 3
+
+
+def test_accessory_skip_rules():
+    assert _accessory_skip(_listing("Handyhülle iPhone 13 Silikon", ad_id=20)) is not None
+    assert _accessory_skip(_listing("USB-C Kabel 2m NEU", ad_id=21)) is not None
+    assert _accessory_skip(_listing("Case für iPad Schutzhülle", ad_id=22)) is not None
+    assert _accessory_skip(_listing("iPhone 13 mit Originalhülle", ad_id=23)) is None
+    assert _accessory_skip(_listing("MacBook Air 13 M1", ad_id=24)) is None
+    assert _accessory_skip(_listing("iPhone XS 64GB defekt", ad_id=25)) is None
 
 
 def test_estimated_analysis_column_defaults_false():
