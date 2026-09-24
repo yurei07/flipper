@@ -17,6 +17,11 @@ from flipper.app.analyzer.base import Provider
 log = logging.getLogger(__name__)
 
 
+class RateLimitedError(RuntimeError):
+    """Бесплатный лимит тарифа (HTTP 429). Лимит — не поломка облака:
+    лот просто дождётся следующего цикла, а не пойдёт на локальную модель."""
+
+
 def _retry_after_seconds(value: str | None, default: float = 5.0) -> float:
     """Разбор Retry-After: число секунд или формат «1m26.4s»/«26s»/«1m»."""
     if not value:
@@ -64,19 +69,21 @@ class OpenAICompatProvider(Provider):
                 {"role": "user", "content": user},
             ],
             "temperature": self.temperature,
-            "max_tokens": 2500,  # ответ — компактный JSON, но gpt-oss тратит часть на reasoning
+            "max_tokens": 2000,  # gpt-oss тратит ~600-1500 на reasoning+JSON; 2000 хватает с запасом
             "stream": False,
         }
         last_err: Exception | None = None
+        rated = False
         for attempt in range(self.retries + 1):
             try:
                 with httpx.Client(timeout=self.timeout_sec) as c:
                     r = c.post(url, json=body, headers=headers)
                 if r.status_code == 429:  # rate limit бесплатного тарифа
+                    rated = True
                     wait = min(max(_retry_after_seconds(r.headers.get("retry-after")), 5.0), 30.0)
                     log.warning("LLM 429 (лимит), ждём %.0fs", wait)
                     time.sleep(wait)
-                    last_err = RuntimeError("429 rate limit")
+                    last_err = RateLimitedError("429 rate limit")
                     continue
                 r.raise_for_status()
                 data = r.json()
@@ -86,4 +93,6 @@ class OpenAICompatProvider(Provider):
                 log.warning(
                     "LLM попытка %d/%d упала: %s", attempt + 1, self.retries + 1, e
                 )
+        if rated:
+            raise RateLimitedError(f"{self.base_url} лимит исчерпан") from last_err
         raise RuntimeError(f"{self.base_url} недоступен: {last_err}") from last_err

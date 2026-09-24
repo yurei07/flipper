@@ -11,7 +11,7 @@ import os
 
 from flipper.app.analyzer.base import Provider
 from flipper.app.analyzer.ollama import OllamaProvider
-from flipper.app.analyzer.openai_compat import OpenAICompatProvider
+from flipper.app.analyzer.openai_compat import OpenAICompatProvider, RateLimitedError
 from flipper.config import AnalyzerConfig
 
 log = logging.getLogger(__name__)
@@ -36,6 +36,11 @@ class FallbackProvider(Provider):
     def chat(self, system: str, user: str) -> str:
         try:
             return self.primary.chat(system, user)
+        except RateLimitedError:
+            # Лимит бесплатного тарифа — не поломка облака: не играем в «умную»
+            # локальную модель, а оставляем лот следующим циклам (качество выше).
+            log.warning("облачная LLM залимитирована (429) — лот перейдёт на следующий цикл")
+            raise
         except Exception as e:
             log.warning("облачная LLM упала (%s) — перехожу на локальную", e)
             return self.fallback.chat(system, user)
