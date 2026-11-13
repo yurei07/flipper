@@ -27,6 +27,7 @@ export interface Deal {
   created_at: string | null
   saved: boolean
   ignored: boolean
+  flip: Flip | null
   analysis: {
     flip_type: 'repair' | 'resale'
     verdict: 'TAKE' | 'MAYBE' | 'SKIP'
@@ -42,23 +43,91 @@ export interface Deal {
   } | null
 }
 
+export interface Flip {
+  id: number
+  listing_id: number | null
+  title: string
+  source: 'kleinanzeigen' | 'vinted'
+  buy_price_eur: number
+  extras_eur: number
+  buy_date: string | null
+  status: 'stock' | 'sold'
+  sale_price_eur: number | null
+  sell_fees_eur: number
+  sold_date: string | null
+  note: string
+  invested_eur: number
+  revenue_eur: number | null
+  profit_eur: number | null
+  roi_pct: number | null
+  created_at: string | null
+}
+
+export interface FlipSummary {
+  total: number
+  stock_count: number
+  sold_count: number
+  stock_invested_eur: number
+  invested_eur: number
+  revenue_eur: number
+  profit_eur: number
+  roi_pct: number | null
+  best_profit_eur: number
+}
+
+export interface FlipDraft {
+  listing_id?: number | null
+  title?: string
+  source?: string
+  buy_price_eur?: number
+  extras_eur?: number
+  buy_date?: string
+  note?: string
+}
+
+export interface FlipPatch {
+  title?: string
+  buy_price_eur?: number
+  extras_eur?: number
+  status?: 'stock' | 'sold'
+  sale_price_eur?: number
+  sell_fees_eur?: number
+  sold_date?: string
+  note?: string
+}
+
 const KEY = 'flipper_api_key'
 const SERVER = 'flipper_server'
 
+// Дефолты, вшитые при сборке APK (VITE_DEFAULT_SERVER / VITE_DEFAULT_KEY):
+// приложение сразу авторизуется, пользователю не нужно вводить сервер и ключ.
+const DEFAULT_KEY = (import.meta.env.VITE_DEFAULT_KEY as string) || ''
+const DEFAULT_SERVER = (import.meta.env.VITE_DEFAULT_SERVER as string) || ''
+
+// Флаг «пользователь явно вышел»: пока он стоит, вшитые ключ/сервер не применяются,
+// иначе «Выйти» не работал бы (приложение сразу логинилось бы обратно).
+const LOGGED_OUT = 'flipper_logged_out'
+
 export function getKey(): string {
-  return localStorage.getItem(KEY) || ''
+  if (localStorage.getItem(LOGGED_OUT)) return localStorage.getItem(KEY) || ''
+  return DEFAULT_KEY || localStorage.getItem(KEY) || ''
 }
 export function setKey(k: string) {
+  localStorage.removeItem(LOGGED_OUT)
   localStorage.setItem(KEY, k)
 }
 export function clearAuth() {
   localStorage.removeItem(KEY)
   localStorage.removeItem(SERVER)
+  localStorage.setItem(LOGGED_OUT, '1')
 }
 export function getServer(): string {
-  return localStorage.getItem(SERVER) || ''
+  // Вшитый при сборке адрес главнее сохранённого: он не «протухает»,
+  // если раньше в приложении был записан старый URL.
+  return DEFAULT_SERVER || localStorage.getItem(SERVER) || ''
 }
 export function setServer(s: string) {
+  localStorage.removeItem(LOGGED_OUT)
   const v = s.trim().replace(/\/+$/, '')
   if (v) localStorage.setItem(SERVER, v)
   else localStorage.removeItem(SERVER)
@@ -168,6 +237,14 @@ export const api = {
     req('/api/v1/settings', { method: 'PUT', body: JSON.stringify(patch) }),
   vintedCatalogs: () =>
     req('/api/v1/vinted/catalogs') as Promise<{ id: string; title: string }[]>,
+  flips: (status?: 'stock' | 'sold') =>
+    req(`/api/v1/flips${status ? `?status=${status}` : ''}`) as Promise<Flip[]>,
+  flipSummary: () => req('/api/v1/flips/summary') as Promise<FlipSummary>,
+  flipCreate: (d: FlipDraft) =>
+    req('/api/v1/flips', { method: 'POST', body: JSON.stringify(d) }) as Promise<Flip>,
+  flipUpdate: (id: number, patch: FlipPatch) =>
+    req(`/api/v1/flips/${id}`, { method: 'PUT', body: JSON.stringify(patch) }) as Promise<Flip>,
+  flipRemove: (id: number) => req(`/api/v1/flips/${id}`, { method: 'DELETE' }),
 }
 
 export const eur = (c: number) => (c / 100).toFixed(0) + '€'

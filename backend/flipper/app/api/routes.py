@@ -11,7 +11,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flipper.app.db import get_session
-from flipper.app.models import Analysis, DeviceToken, Listing, PushSubscription, Search, UserAction
+from flipper.app.models import (
+    Analysis,
+    DeviceToken,
+    Flip,
+    FLIP_SOLD,
+    FLIP_STOCK,
+    Listing,
+    PushSubscription,
+    Search,
+    UserAction,
+)
 from flipper.config import Config, load_config
 from flipper.app.db import init_db
 
@@ -61,6 +71,75 @@ class SettingsBody(BaseModel):
     exclude_title_keywords: list[str] | None = None
     vinted_enabled: bool | None = None
     vinted_default_catalog_ids: list[int] | None = None
+
+
+class FlipBody(BaseModel):
+    """Новая личная сделка: «купил» со страницы лота или вручную."""
+
+    listing_id: int | None = None
+    title: str = Field(default="", max_length=300)
+    source: str | None = None
+    buy_price_eur: float = 0.0
+    extras_eur: float = 0.0
+    buy_date: str | None = None  # ISO-дата
+    note: str = Field(default="", max_length=2000)
+
+
+class FlipUpdate(BaseModel):
+    """Патч сделки: правки суммы, статус «продано», цена/расходы продажи."""
+
+    title: str | None = Field(default=None, max_length=300)
+    buy_price_eur: float | None = None
+    extras_eur: float | None = None
+    status: str | None = None  # stock | sold
+    sale_price_eur: float | None = None
+    sell_fees_eur: float | None = None
+    sold_date: str | None = None
+    note: str | None = Field(default=None, max_length=2000)
+
+
+def _parse_date(value: str | None):
+    """Парсит ISO-дату из клиента; пустую строку трактует как None."""
+    from datetime import datetime
+
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="bad date")
+
+
+def _flip_dict(f: Flip) -> dict:
+    """Сделка + посчитанная экономика (вложено, профит, ROI)."""
+    invested = round((f.buy_price_eur or 0.0) + (f.extras_eur or 0.0), 2)
+    if f.status == FLIP_SOLD and f.sale_price_eur is not None:
+        revenue = round(f.sale_price_eur - (f.sell_fees_eur or 0.0), 2)
+        profit = round(revenue - invested, 2)
+        roi = round(profit / invested * 100, 1) if invested > 0 else None
+    else:
+        revenue = None
+        profit = None
+        roi = None
+    return {
+        "id": f.id,
+        "listing_id": f.listing_id,
+        "title": f.title,
+        "source": f.source,
+        "buy_price_eur": f.buy_price_eur,
+        "extras_eur": f.extras_eur,
+        "buy_date": f.buy_date.isoformat() if f.buy_date else None,
+        "status": f.status,
+        "sale_price_eur": f.sale_price_eur,
+        "sell_fees_eur": f.sell_fees_eur,
+        "sold_date": f.sold_date.isoformat() if f.sold_date else None,
+        "note": f.note,
+        "invested_eur": invested,
+        "revenue_eur": revenue,
+        "profit_eur": profit,
+        "roi_pct": roi,
+        "created_at": f.created_at.isoformat() if f.created_at else None,
+    }
 
 
 def _set_action(s: Session, ad_id: int, action: str) -> dict:
@@ -140,16 +219,29 @@ def make_app(lifespan=None) -> FastAPI:
             cutoff = datetime.utcnow() - timedelta(hours=created_after_hours)
             q = q.where(Analysis.created_at >= cutoff)
         rows = s.execute(q.offset(offset).limit(limit)).scalars().all()
-        listings = {
-            l.ad_id: l
-            for l in s.execute(select(Listing)).scalars().all()
-        }
-        # Последнее действие пользователя по объявлению (для badges в ленте)
+        # Грузим из listings ТОЛЬКО объявления текущей страницы.
+        # Раньше здесь читалась вся таблица (64k+ строк) на каждый запрос —
+        # из-за этого лента открывалась по несколько секунд.
+        ids = [a.listing_id for a in rows]
+        listings = (
+            {
+                l.ad_id: l
+                for l in s.execute(
+                    select(Listing).where(Listing.ad_id.in_(ids))
+                ).scalars().all()
+            }
+            if ids
+            else {}
+        )
+        # Последнее действие пользователя по этим объявлениям (для badges в ленте)
         actions: dict[int, str] = {}
-        for ua in s.execute(
-            select(UserAction).order_by(UserAction.at.desc())
-        ).scalars().all():
-            actions.setdefault(ua.listing_id, ua.action)  # первое (свежайшее) побеждает
+        if ids:
+            for ua in s.execute(
+                select(UserAction)
+                .where(UserAction.listing_id.in_(ids))
+                .order_by(UserAction.at.desc())
+            ).scalars().all():
+                actions.setdefault(ua.listing_id, ua.action)  # первое (свежайшее) побеждает
         if saved:
             rows = [a for a in rows if actions.get(a.listing_id) == "saved"]
         return [
@@ -191,6 +283,9 @@ def make_app(lifespan=None) -> FastAPI:
         action = s.execute(
             select(UserAction).where(UserAction.listing_id == ad_id).order_by(UserAction.at.desc())
         ).scalars().first()
+        flip = s.execute(
+            select(Flip).where(Flip.listing_id == ad_id).order_by(Flip.created_at.desc())
+        ).scalars().first()
         return {
             "ad_id": listing.ad_id,
             "title": listing.title,
@@ -203,6 +298,7 @@ def make_app(lifespan=None) -> FastAPI:
             "created_at": listing.first_seen_at.isoformat() if listing.first_seen_at else None,
             "saved": action is not None and action.action == "saved",
             "ignored": action is not None and action.action in ("ignored", "dismissed"),
+            "flip": _flip_dict(flip) if flip else None,
             "analysis": (
                 {
                     "flip_type": analysis.flip_type,
@@ -233,6 +329,118 @@ def make_app(lifespan=None) -> FastAPI:
     @app.post("/api/v1/listings/{ad_id}/dismissed")
     def dismiss_listing(ad_id: int, _=Depends(require_key), s: Session = Depends(get_session)):
         return _set_action(s, ad_id, "dismissed")
+
+    # --- Портфель флиппера: личные сделки (купил → продал → профит) ---
+
+    @app.get("/api/v1/flips")
+    def list_flips(
+        status: str | None = None,
+        _=Depends(require_key),
+        s: Session = Depends(get_session),
+    ):
+        """Все сделки пользователя (свежие сверху), опц. фильтр по статусу."""
+        q = select(Flip).order_by(Flip.created_at.desc())
+        if status:
+            q = q.where(Flip.status == status)
+        return [_flip_dict(f) for f in s.execute(q).scalars().all()]
+
+    @app.get("/api/v1/flips/summary")
+    def flip_summary(_=Depends(require_key), s: Session = Depends(get_session)):
+        """Сводка портфеля: вложено, выручка, профит, ROI, лучшая сделка."""
+        rows = s.execute(select(Flip)).scalars().all()
+        stock = [f for f in rows if f.status != FLIP_SOLD]
+        sold = [f for f in rows if f.status == FLIP_SOLD and f.sale_price_eur is not None]
+        stock_invested = sum((f.buy_price_eur or 0) + (f.extras_eur or 0) for f in stock)
+        invested = sum((f.buy_price_eur or 0) + (f.extras_eur or 0) for f in sold)
+        revenue = sum((f.sale_price_eur or 0) - (f.sell_fees_eur or 0) for f in sold)
+        profit = round(revenue - invested, 2)
+        roi = round(profit / invested * 100, 1) if invested > 0 else None
+        profits = [
+            (f.sale_price_eur or 0) - (f.sell_fees_eur or 0) - (f.buy_price_eur or 0) - (f.extras_eur or 0)
+            for f in sold
+        ]
+        return {
+            "total": len(rows),
+            "stock_count": len(stock),
+            "sold_count": len(sold),
+            "stock_invested_eur": round(stock_invested, 2),
+            "invested_eur": round(invested, 2),
+            "revenue_eur": round(revenue, 2),
+            "profit_eur": profit,
+            "roi_pct": roi,
+            "best_profit_eur": round(max(profits), 2) if profits else 0.0,
+        }
+
+    @app.post("/api/v1/flips")
+    def create_flip(
+        body: FlipBody,
+        _=Depends(require_key),
+        s: Session = Depends(get_session),
+    ):
+        """Заводит сделку. Если указан listing_id — подтягивает заголовок/источник."""
+        title = body.title
+        source = body.source or "kleinanzeigen"
+        if body.listing_id is not None:
+            listing = s.get(Listing, body.listing_id)
+            if listing is None:
+                raise HTTPException(status_code=404, detail="listing not found")
+            title = title or listing.title
+            source = body.source or listing.source
+        buy_date = _parse_date(body.buy_date)
+        flip = Flip(
+            listing_id=body.listing_id,
+            title=title,
+            source=source,
+            buy_price_eur=body.buy_price_eur,
+            extras_eur=body.extras_eur,
+            note=body.note,
+        )
+        if buy_date is not None:
+            flip.buy_date = buy_date
+        s.add(flip)
+        s.commit()
+        s.refresh(flip)
+        return _flip_dict(flip)
+
+    @app.put("/api/v1/flips/{flip_id}")
+    def update_flip(
+        flip_id: int,
+        body: FlipUpdate,
+        _=Depends(require_key),
+        s: Session = Depends(get_session),
+    ):
+        """Правки сделки. При переводе в «продано» ставит дату, если не задана."""
+        flip = s.get(Flip, flip_id)
+        if flip is None:
+            raise HTTPException(status_code=404, detail="not found")
+        data = body.model_dump(exclude_unset=True)
+        if "sold_date" in data:
+            flip.sold_date = _parse_date(data.pop("sold_date"))
+        for key, value in data.items():
+            if key == "status" and value not in (FLIP_STOCK, FLIP_SOLD):
+                raise HTTPException(status_code=422, detail="bad status")
+            setattr(flip, key, value)
+        if flip.status == FLIP_SOLD and flip.sold_date is None:
+            from datetime import datetime
+
+            flip.sold_date = datetime.utcnow()
+        s.commit()
+        s.refresh(flip)
+        return _flip_dict(flip)
+
+    @app.delete("/api/v1/flips/{flip_id}")
+    def delete_flip(
+        flip_id: int,
+        _=Depends(require_key),
+        s: Session = Depends(get_session),
+    ):
+        """Удаляет сделку из портфеля."""
+        flip = s.get(Flip, flip_id)
+        if flip is None:
+            raise HTTPException(status_code=404, detail="not found")
+        s.delete(flip)
+        s.commit()
+        return {"ok": True}
 
     @app.post("/api/v1/notifications/register")
     def register_device(
@@ -369,12 +577,10 @@ def make_app(lifespan=None) -> FastAPI:
     @app.post("/api/v1/analyze/{ad_id}")
     def reanalyze(ad_id: int, _=Depends(require_key)):
         """Ручной (пере)анализ объявления — cooldown соблюдается. Пушей не шлёт."""
-        from flipper.app.analyzer.ollama import OllamaProvider
+        from flipper.app.analyzer.factory import make_provider
         from flipper.app.pipeline import run_on_listing
         from flipper.app.scraper.client import ScraperClient
 
-        if not cfg.api.api_key:
-            pass  # auth уже пройден через bearer
         from flipper.app.cooldown import in_cooldown
         if in_cooldown():
             raise HTTPException(status_code=429, detail="cooldown active")
@@ -383,13 +589,7 @@ def make_app(lifespan=None) -> FastAPI:
             delay_range=(0.1, 0.2),
             max_requests=cfg.scraper.max_requests_per_cycle,
         )
-        provider = OllamaProvider(
-            base_url=cfg.analyzer.ollama_base_url,
-            model=cfg.analyzer.model,
-            temperature=cfg.analyzer.temperature,
-            timeout_sec=cfg.analyzer.timeout_sec,
-            retries=cfg.analyzer.retries,
-        )
+        provider = make_provider(cfg.analyzer)
         # Лоты с Vinted считаем рынок на Vinted (иначе KK)
         vinted_client = None
         if vinted_client is None and cfg.vinted.enabled:

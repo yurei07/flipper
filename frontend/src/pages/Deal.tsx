@@ -9,6 +9,7 @@ export function DealPage() {
   const [photo, setPhoto] = useState(0)
   const [reMsg, setReMsg] = useState('')
   const [showDesc, setShowDesc] = useState(false)
+  const [flipMsg, setFlipMsg] = useState('')
 
   useEffect(() => {
     if (!id) return
@@ -41,6 +42,16 @@ export function DealPage() {
       setReMsg('готово ✓')
     } catch {
       setReMsg('ошибка (может быть cooldown)')
+    }
+  }
+  const buy = async () => {
+    try {
+      await api.flipCreate({ listing_id: d.ad_id, buy_price_eur: d.price_cents / 100 })
+      const nd = await api.deal(d.ad_id)
+      setD(nd)
+      setFlipMsg('добавлено в портфель ✓')
+    } catch (e: any) {
+      setFlipMsg(e.message || 'ошибка')
     }
   }
 
@@ -132,8 +143,18 @@ export function DealPage() {
         <button className={'skip-btn' + (d.ignored ? ' on' : '')} onClick={() => act('ignored')}>
           ☓ Мимо
         </button>
+        {d.flip ? (
+          <Link className="buy-btn on" to="/profile">
+            ✓ {d.flip.status === 'sold' ? 'продано' : 'в портфеле'} →
+          </Link>
+        ) : (
+          <button className="buy-btn" onClick={buy}>
+            🛒 Купил
+          </button>
+        )}
         <button onClick={reanalyze}>↻ Переанализ</button>
       </div>
+      {flipMsg && <div className="dim">{flipMsg}</div>}
       {reMsg && <div className="dim">{reMsg}</div>}
 
       {d.description && (

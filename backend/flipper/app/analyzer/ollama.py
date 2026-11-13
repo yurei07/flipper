@@ -25,14 +25,15 @@ class OllamaProvider(Provider):
         self.timeout_sec = timeout_sec
         self.retries = retries
 
-    def chat(self, system: str, user: str) -> str:
+    def chat(self, system: str, user: str, images: list[str] | None = None) -> str:
         """POST /api/chat. При неудаче — ретраи, потом поднимаем RuntimeError."""
         url = f"{self.base_url}/api/chat"
+        user_msg: dict = {"role": "user", "content": user}
         body = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                user_msg,
             ],
             "options": {"temperature": self.temperature},
             "stream": False,

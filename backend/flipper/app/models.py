@@ -135,6 +135,37 @@ class Setting(Base):
     value: Mapped[str] = mapped_column(Text, default="")
 
 
+# Статус флипа в портфеле пользователя
+FLIP_STOCK = "stock"  # куплено, в наличии / готовится к продаже
+FLIP_SOLD = "sold"    # продано
+
+
+class Flip(Base):
+    """Личная сделка пользователя: купил -> (вложил) -> продал = профит.
+
+    Заводится вручную или со страницы лота. Хранит факт покупки/продажи и
+    расходы, чтобы приложение считало реальную прибыль и ROI.
+    """
+    __tablename__ = "flips"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    listing_id: Mapped[int | None] = mapped_column(
+        ForeignKey("listings.ad_id"), nullable=True
+    )
+    title: Mapped[str] = mapped_column(String(300), default="")
+    source: Mapped[str] = mapped_column(String(20), default=SOURCE_KLEINANZEIGEN)
+    buy_price_eur: Mapped[float] = mapped_column(Float, default=0.0)
+    buy_date: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    extras_eur: Mapped[float] = mapped_column(Float, default=0.0)  # запчасти, дорога, расходники
+    status: Mapped[str] = mapped_column(String(10), default=FLIP_STOCK)
+    sale_price_eur: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sell_fees_eur: Mapped[float] = mapped_column(Float, default=0.0)  # комиссия/доставка при продаже
+    sold_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
 class CycleRun(Base):
     """Одна запись о проходе цикл приготовления: мониторинг стабильности (Phase B).
 

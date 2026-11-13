@@ -87,6 +87,34 @@ def _normalize_flip(res: AnalysisResult, listing) -> None:
         log.info("дефекта в лоте %s нет — перевод в resale", listing.ad_id)
 
 
+# Ликвидность ниши (скорость продажи на вторичке). Ходовое железо уходит за дни,
+# неликвид висит месяцами. Классифицируем по типу устройства + маркерам в модели.
+_LIQUID_HOT_TYPES = {
+    "gpu", "cpu", "laptop", "notebook", "console", "phone", "smartphone", "tablet",
+}
+_LIQUID_SLOW_TYPES = {"appliance", "printer", "drucker", "tv", "monitor"}
+_LIQUID_HOT_TERMS = (
+    "rtx", "gtx", "geforce", "radeon", "ryzen", "core i", "playstation", "ps4", "ps5",
+    "xbox", "switch", "steam deck", "thinkpad", "macbook", "iphone", "ipad", "rog",
+    "zephyrus", "razer", "surface", "matebook", "pixel", "galaxy", "oneplus", "airpods",
+)
+_LIQUID_SLOW_TERMS = (
+    "kaffeevollautomat", "staubsauger", "waschmaschine", "kühlschrank", "mikrowelle",
+    "drucker", "pentium", "core 2 duo", "windows xp", "windows vista",
+)
+
+
+def _liquidity_class(res: AnalysisResult) -> str:
+    """hot | normal | slow — насколько быстро продаётся такая вещь."""
+    dtype = (res.device.type or "").strip().lower()
+    blob = f"{res.device.brand} {res.device.model} {res.device.specs_hint}".lower()
+    if dtype in _LIQUID_SLOW_TYPES or any(t in blob for t in _LIQUID_SLOW_TERMS):
+        return "slow"
+    if dtype in _LIQUID_HOT_TYPES or any(t in blob for t in _LIQUID_HOT_TERMS):
+        return "hot"
+    return "normal"
+
+
 def recompute_verdict(
     res: AnalysisResult, deal: DealConfig
 ) -> tuple[float, float, Verdict]:
@@ -106,6 +134,18 @@ def recompute_verdict(
         margin_eur = market - price_ask - cost
         take_eur, take_pct = deal.min_margin_eur, deal.min_margin_pct
         maybe_eur = 15.0
+
+    # Правило ликвидности: у ходовых ниш (GPU/CPU/ноутбуки/консоли/Apple) оборот
+    # важнее жирной маржи — порог TAKE ниже. У неликвида/стаарья — выше, чтобы не
+    # залипнуть на товаре, который «висит месяцами».
+    if deal.liquidity_enabled:
+        cls = _liquidity_class(res)
+        if cls == "hot":
+            take_eur *= deal.liquidity_hot_discount
+            take_pct *= deal.liquidity_hot_discount
+        elif cls == "slow":
+            take_eur *= deal.liquidity_slow_penalty
+            take_pct *= deal.liquidity_slow_penalty
 
     margin_pct = (margin_eur / price_ask * 100) if price_ask > 0 else 0.0
 

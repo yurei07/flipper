@@ -4,6 +4,9 @@ services:
     container_name: flipper-backend
     volumes:
       - ./backend:/app
+      # frontend/dist лежит рядом с backend; внутри контейнера bind-mount
+      # сдвигает корень проекта в /, поэтому монтируем статику отдельно.
+      - ./frontend/dist:/frontend/dist:ro
     env_file:
       - path: .env
         required: false
@@ -11,9 +14,7 @@ services:
     # Порты в этом режиме не пробрасываются — backend слушает 8000 на хосте напрямую.
     network_mode: host
     restart: unless-stopped
-    command: >
-      sh -c "uvicorn flipper.app.main:app
-             --host 0.0.0.0 --port 8000"
+    command: sh -c "uvicorn flipper.app.main:app --host 0.0.0.0 --port 8000"
 
   # Ollama живёт отдельно на хосте (родным инсталлятором), не в compose
 

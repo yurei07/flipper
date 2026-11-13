@@ -8,7 +8,14 @@ import pytest
 from flipper.app.analyzer.schema import AnalysisResult, Fault, FlipType, Verdict
 from flipper.app.db import get_session, init_db
 from flipper.app.models import STATUS_ACTIVE, Analysis, Listing
-from flipper.app.pipeline import _normalize_flip, _accessory_skip, _pending_split
+from flipper.app.pipeline import (
+    _accessory_skip,
+    _liquidity_class,
+    _normalize_flip,
+    _pending_split,
+    recompute_verdict,
+)
+from flipper.config import DealConfig
 
 
 @pytest.fixture(autouse=True)
@@ -135,3 +142,52 @@ def test_estimated_analysis_column_defaults_false():
         s.commit()
         a = s.query(Analysis).filter_by(listing_id="33").one()
         assert a.market_estimated is False
+
+
+def _res_priced(device_type, price, market, brand="", model="", specs=""):
+    deal = {
+        "price_ask_eur": price, "market_working_eur": market, "repair_cost_eur": 0,
+        "margin_eur": 0, "margin_pct": 0, "resale_speed_hint_ru": "", "verdict": "SKIP",
+        "confidence": 0.8, "pros_ru": [], "cons_ru": [], "action_ru": "",
+    }
+    return AnalysisResult.model_validate(
+        {
+            "flip_type": "resale",
+            "device": {"type": device_type, "brand": brand, "model": model, "specs_hint": specs},
+            "deal": deal,
+            "flag_reasons_ru": [],
+        }
+    )
+
+
+def test_liquidity_class_by_type_and_markers():
+    assert _liquidity_class(_res_priced("gpu", 100, 200)) == "hot"
+    assert _liquidity_class(_res_priced("console", 100, 200)) == "hot"
+    assert _liquidity_class(_res_priced("unknown", 100, 200, brand="NVIDIA", model="RTX 3070")) == "hot"
+    assert _liquidity_class(_res_priced("printer", 100, 200)) == "slow"
+    assert _liquidity_class(_res_priced("unknown", 100, 200, model="Kaffeevollautomat")) == "slow"
+    assert _liquidity_class(_res_priced("unknown", 100, 200, model="Irgendwas")) == "normal"
+
+
+def test_liquidity_hot_lowers_take_threshold():
+    # маржа 40€ при цене 100: обычная ниша -> MAYBE, ходовое железо -> TAKE
+    cfg = DealConfig()
+    hot = _res_priced("gpu", 100, 145)
+    normal = _res_priced("unknown", 100, 145)
+    assert recompute_verdict(hot, cfg)[2] == Verdict.TAKE
+    assert recompute_verdict(normal, cfg)[2] == Verdict.MAYBE
+
+
+def test_liquidity_slow_raises_take_threshold():
+    # маржа 55€ при цене 100: обычная ниша -> TAKE, неликвид -> MAYBE
+    cfg = DealConfig()
+    normal = _res_priced("unknown", 100, 160)
+    slow = _res_priced("printer", 100, 160)
+    assert recompute_verdict(normal, cfg)[2] == Verdict.TAKE
+    assert recompute_verdict(slow, cfg)[2] == Verdict.MAYBE
+
+
+def test_liquidity_can_be_disabled():
+    cfg = DealConfig(liquidity_enabled=False)
+    hot = _res_priced("gpu", 100, 145)
+    assert recompute_verdict(hot, cfg)[2] == Verdict.MAYBE

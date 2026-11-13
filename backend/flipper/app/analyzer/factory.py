@@ -19,6 +19,8 @@ log = logging.getLogger(__name__)
 # base_url и env-переменная с ключом для популярных бесплатных провайдеров
 _PRESETS: dict[str, tuple[str, str]] = {
     "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY"),
+    "openai": ("https://api.openai.com/v1", "OPENAI_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "cerebras": ("https://api.cerebras.ai/v1", "CEREBRAS_API_KEY"),
     "together": ("https://api.together.xyz/v1", "TOGETHER_API_KEY"),
@@ -32,10 +34,11 @@ class FallbackProvider(Provider):
         self.primary = primary
         self.fallback = fallback
         self.model = primary.model
+        self.vision = getattr(primary, "vision", False)
 
-    def chat(self, system: str, user: str) -> str:
+    def chat(self, system: str, user: str, images: list[str] | None = None) -> str:
         try:
-            return self.primary.chat(system, user)
+            return self.primary.chat(system, user, images=images)
         except RateLimitedError:
             # Лимит бесплатного тарифа — не поломка облака: не играем в «умную»
             # локальную модель, а оставляем лот следующим циклам (качество выше).
@@ -89,8 +92,10 @@ def make_provider(cfg: AnalyzerConfig) -> Provider:
         temperature=cfg.temperature,
         timeout_sec=cfg.timeout_sec,
         retries=cfg.retries,
+        max_tokens=cfg.max_tokens,
+        vision=cfg.vision,
     )
-    log.info("LLM: %s (%s)", cfg.model, provider)
+    log.info("LLM: %s (%s)%s", cfg.model, provider, " +фото" if cfg.vision else "")
     if cfg.fallback_local:
         return FallbackProvider(primary, _ollama(cfg, model=cfg.local_model))
     return primary

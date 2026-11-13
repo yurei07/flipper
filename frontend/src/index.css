@@ -311,3 +311,85 @@ ul.pros li::before, ul.cons li::before { content: ""; }
 .take { color: var(--ok); }
 .maybe { color: var(--warn); }
 .skip { color: var(--skip); }
+
+/* --- кнопка «Купил» на странице лота --- */
+.buy-btn { flex: 1; font-weight: 700; }
+.buy-btn.on { border-color: var(--ok); color: var(--ok); }
+
+/* --- профиль / портфель --- */
+.profile { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
+.profile h1 { margin: 4px 0 0; font-size: 22px; }
+
+.pf-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pf-stat {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 12px 10px; text-align: center;
+}
+.pf-stat.big { grid-column: span 1; }
+.pf-stat.big .pf-stat-v { font-size: 20px; }
+.pf-stat.win { border-color: #24543a; }
+.pf-stat.win .pf-stat-v { color: var(--ok); }
+.pf-stat.lose { border-color: #4a2a2a; }
+.pf-stat.lose .pf-stat-v { color: var(--skip); }
+.pf-stat-v { font-size: 17px; font-weight: 800; color: #fff; }
+.pf-stat-k { font-size: 10.5px; color: var(--dim2); text-transform: uppercase; letter-spacing: .4px; margin-top: 3px; }
+
+.pf-actions { display: flex; align-items: center; gap: 8px; }
+.pf-tabs { display: flex; gap: 6px; flex: 1; }
+.pf-tab {
+  border-radius: 999px; padding: 6px 14px; font-size: 13.5px; font-weight: 600;
+  color: var(--dim); background: var(--panel);
+}
+.pf-tab.on { color: #06120c; background: var(--ok); border-color: var(--ok); }
+.pf-add { padding: 8px 14px; font-weight: 700; }
+
+.pf-addform {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 12px; display: flex; flex-direction: column; gap: 10px;
+}
+.pf-addform > input { width: 100%; }
+.pf-addrow { display: flex; gap: 8px; flex-wrap: wrap; }
+.pf-addrow label, .pf-edit label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--dim); flex: 1; min-width: 90px; }
+
+.pf-list { display: flex; flex-direction: column; gap: 10px; }
+.pf-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 13px 14px; display: flex; flex-direction: column; gap: 9px;
+}
+.pf-card.sold { border-color: #24543a; }
+.pf-head { display: flex; align-items: flex-start; gap: 8px; }
+.pf-title { font-weight: 700; font-size: 15px; flex: 1; line-height: 1.35; }
+a.pf-title:hover { color: var(--ok); }
+.pf-status {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .4px; padding: 3px 9px;
+  border-radius: 999px; white-space: nowrap;
+}
+.pf-status.stock { color: var(--warn); background: #2a2210; }
+.pf-status.sold { color: var(--ok); background: #10301f; }
+
+.pf-money { font-size: 13.5px; color: var(--dim); cursor: pointer; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.pf-money:hover { color: var(--text); }
+.pf-invested { color: var(--dim2); }
+
+.pf-edit { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.pf-edit-actions { display: flex; gap: 6px; }
+
+.pf-sell { display: flex; gap: 8px; flex-wrap: wrap; }
+.pf-sell input { flex: 1; min-width: 100px; }
+
+.pf-result { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.pf-sold-for { font-size: 13.5px; color: var(--dim); }
+.pf-profit { font-weight: 800; font-size: 16px; }
+.pf-profit.win { color: var(--ok); }
+.pf-profit.lose { color: var(--skip); }
+.pf-profit em { font-style: normal; font-weight: 600; font-size: 12.5px; color: var(--dim); }
+
+.pf-tools { display: flex; gap: 8px; }
+.pf-mini { padding: 6px 12px; font-size: 13px; border-radius: 10px; }
+.pf-mini.on { background: linear-gradient(135deg, #1c8a58, var(--ok)); color: #06120c; border: none; font-weight: 700; }
+.pf-mini.danger { color: var(--skip); }
+.pf-msg { color: var(--warn); font-size: 13px; }
+
+@media (max-width: 420px) {
+  .pf-summary { grid-template-columns: repeat(2, 1fr); }
+}

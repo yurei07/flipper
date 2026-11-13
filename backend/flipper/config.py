@@ -85,6 +85,8 @@ class AnalyzerConfig:
     api_key_env: str = ""            # напр. "GROQ_API_KEY"
     fallback_local: bool = True      # при сбое API — падать на локальную модель
     local_model: str = "qwen3:8b"
+    max_tokens: int = 2000           # потолок ответа модели
+    vision: bool = False             # слать фото в модель (нужен vision-провайдер)
 
 
 @dataclass
@@ -98,6 +100,10 @@ class DealConfig:
     market_factor: float = 0.88
     price_cache_days: int = 7
     min_price_samples: int = 3
+    # --- Правило ликвидности: быстрый оборот важнее жирной маржи ---
+    liquidity_enabled: bool = True
+    liquidity_hot_discount: float = 0.75   # порог TAKE ×0.75 для ходовых ниш
+    liquidity_slow_penalty: float = 1.3    # порог TAKE ×1.3 для неликвида/ста��ья
 
 
 @dataclass
@@ -209,6 +215,8 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
             api_key_env=ana.get("api_key_env", ""),
             fallback_local=ana.get("fallback_local", True),
             local_model=ana.get("local_model", "qwen3:8b"),
+            max_tokens=ana.get("max_tokens", 2000),
+            vision=ana.get("vision", False),
         ),
         deal=DealConfig(
             min_margin_eur=dl.get("min_margin_eur", 40),
@@ -220,6 +228,9 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
             market_factor=dl.get("market_factor", 0.88),
             price_cache_days=dl.get("price_cache_days", 7),
             min_price_samples=dl.get("min_price_samples", 3),
+            liquidity_enabled=dl.get("liquidity_enabled", True),
+            liquidity_hot_discount=dl.get("liquidity_hot_discount", 0.75),
+            liquidity_slow_penalty=dl.get("liquidity_slow_penalty", 1.3),
         ),
         api=ApiConfig(api_key=os.getenv("FLIPPER_API_KEY", api.get("api_key", ""))),
         db=DbConfig(url=db.get("url", "sqlite:///./flipper.db")),

@@ -21,12 +21,26 @@ log = logging.getLogger(__name__)
 def analyze_listing(listing: Listing, provider: Provider) -> AnalysisResult:
     """Возвращает распарсенный и СХЕМО-провалидированный результат анализа."""
     user = build_user_prompt(listing)
-    raw = provider.chat(SYSTEM_PROMPT, user)
-    return _parse_with_retry(listing, provider, SYSTEM_PROMPT, user, raw)
+    images = _images_for(listing, provider)
+    raw = provider.chat(SYSTEM_PROMPT, user, images=images)
+    return _parse_with_retry(listing, provider, SYSTEM_PROMPT, user, raw, images)
+
+
+def _images_for(listing: Listing, provider: Provider) -> list[str] | None:
+    """Фото объявления — только если провайдер умеет их смотреть."""
+    if not getattr(provider, "vision", False):
+        return None
+    urls = list(listing.image_urls_json or [])
+    return urls[:4] or None
 
 
 def _parse_with_retry(
-    listing: Listing, provider: Provider, system: str, user: str, raw: str
+    listing: Listing,
+    provider: Provider,
+    system: str,
+    user: str,
+    raw: str,
+    images: list[str] | None = None,
 ) -> AnalysisResult:
     """Пробуем распарсить. Один ретрай на экспорт market_working_eur. Потом SKIP."""
     for attempt in range(2):
@@ -36,7 +50,7 @@ def _parse_with_retry(
         except (ValueError, json.JSONDecodeError) as e:
             log.warning("кривой JSON от модели (попытка %d): %s", attempt + 1, e)
             if attempt == 0:
-                raw = provider.chat(system, user)  # ретрай: у модели мог выйти кривой JSON
+                raw = provider.chat(system, user, images=images)  # ретрай: мог выйти кривой JSON
             continue
         if data.get("device", {}).get("type") == "accessory":
             return _accessory_result(listing)
@@ -45,7 +59,7 @@ def _parse_with_retry(
         except ValidationError as e:
             log.warning("ответ модели не прошёл валидацию (попытка %d): %s", attempt + 1, e)
             if attempt == 0:
-                raw = provider.chat(system, user)  # ретрай: у модели мог выйти кривой JSON
+                raw = provider.chat(system, user, images=images)  # ретрай: мог выйти кривой JSON
     return AnalysisResult(
         flip_type="repair",
         device={"type": "unknown"},

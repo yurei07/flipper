@@ -11,8 +11,12 @@ class Provider(ABC):
     temperature: float
     timeout_sec: int
     retries: int
+    vision: bool = False  # умеет ли провайдер смотреть фото
 
     @abstractmethod
-    def chat(self, system: str, user: str) -> str:
-        """Один запрос, возвращает СЫРОЙ текст ответа модели."""
+    def chat(self, system: str, user: str, images: list[str] | None = None) -> str:
+        """Один запрос, возвращает СЫРОЙ текст ответа модели.
+
+        images — список URL фото объявления (используется только если vision=True).
+        """
         raise NotImplementedError

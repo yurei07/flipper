@@ -233,6 +233,106 @@ scraper:
       max_price_eur: 120
       radius_km: 15
       location: "Flensburg"
+    # --- Высокая ликвидность: ПК-железо уходит быстрее всего ---
+    # Видеокарты/процессоры: легко тестировать (FurMark), компактные, шлются доставкой.
+    - query: "Prozessor"
+      max_price_eur: 150
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [225]
+      sort_price: "ASCENDING"
+    - query: "CPU"
+      max_price_eur: 150
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [225]
+      sort_price: "ASCENDING"
+    - query: "Ryzen"
+      max_price_eur: 180
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [225]
+      sort_price: "ASCENDING"
+    - query: "RTX 3070"
+      max_price_eur: 350
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [225]
+    - query: "RTX 3080"
+      max_price_eur: 400
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [225]
+    - query: "Grafikkarte defekt"
+      max_price_eur: 120
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [225]
+    - query: "Mainboard"
+      max_price_eur: 100
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [225]
+      sort_price: "ASCENDING"
+    # --- Ноутбуки: игровые и рабочие; частый ремонт = чистка/термопаста/ОС ---
+    - query: "Zephyrus"
+      max_price_eur: 400
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [278]
+    - query: "Razer Blade"
+      max_price_eur: 400
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [278]
+    - query: "Surface"
+      max_price_eur: 250
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [278]
+    - query: "MateBook"
+      max_price_eur: 200
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [278]
+    - query: "Laptop defekt Display"
+      max_price_eur: 120
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [278]
+    # --- Консоли и периферия: импульсивные покупки, быстрый оборот ---
+    - query: "PlayStation 5"
+      max_price_eur: 300
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [279]
+    - query: "Xbox Series"
+      max_price_eur: 200
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [279]
+    - query: "Switch OLED"
+      max_price_eur: 180
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [279]
+    - query: "Steam Deck"
+      max_price_eur: 300
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [279]
+    - query: "Mechanische Tastatur"
+      max_price_eur: 80
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [225]
+      sort_price: "ASCENDING"
+    - query: "Logitech Maus"
+      max_price_eur: 60
+      radius_km: 15
+      location: "Flensburg"
+      category_ids: [225]
+      sort_price: "ASCENDING"
   # Титулы/описания с этими словами - отбрасывать (клиентский фильтр)
   # Catch-all «defekt» тянет весь сайт (API игнорирует категории для строковых
   # запросов) — этим фильтром отсекаем заведомо не-технику: велосипеды/мебель/
@@ -358,6 +458,23 @@ vinted:
       max_price_eur: 150
     - query: "Xbox"
       max_price_eur: 100
+    # ПК-железо и периферия: ходовое, уходит быстро
+    - query: "RTX 3070"
+      max_price_eur: 250
+    - query: "Grafikkarte"
+      max_price_eur: 150
+    - query: "Prozessor"
+      max_price_eur: 120
+    - query: "Ryzen"
+      max_price_eur: 150
+    - query: "Razer"
+      max_price_eur: 200
+    - query: "Mechanische Tastatur"
+      max_price_eur: 70
+    - query: "Steam Deck"
+      max_price_eur: 300
+    - query: "PlayStation 5"
+      max_price_eur: 280
     # Ремонтные углы (на Vinted их меньше, но бывают)
     - query: "defekt Bastler"
       max_price_eur: 80
@@ -366,15 +483,17 @@ vinted:
 
 # ===== Анализатор (LLM) =====
 analyzer:
-  provider: groq             # local | groq | openrouter | cerebras | together
-  model: "openai/gpt-oss-120b"
-  base_url: "https://api.groq.com/openai/v1"
-  api_key: ""                # лучше через .env: GROQ_API_KEY или FLIPPER_LLM_API_KEY
-  api_key_env: "GROQ_API_KEY"
+  provider: gemini           # local | groq | gemini | openai | openrouter | cerebras | together
+  model: "gemini-2.5-flash"
+  base_url: ""               # берётся из пресета провайдера
+  api_key: ""                # лучше через .env: GEMINI_API_KEY или FLIPPER_LLM_API_KEY
+  api_key_env: "GEMINI_API_KEY"
   fallback_local: true       # API упал/лимит -> считаем локальной моделью
   local_model: "qwen3:8b"    # локальный фолбэк (можно qwen3:14b)
+  max_tokens: 3000           # gemini-2.5-flash: reasoning + JSON + фото
+  vision: true               # слать фото (gemini/openai умеют смотреть картинки)
   temperature: 0.1
-  timeout_sec: 60
+  timeout_sec: 90
   retries: 3
   min_confidence: 0.7
   ollama_base_url: "http://localhost:11434"
@@ -390,6 +509,12 @@ deal:
   market_factor: 0.88        # медиана цен объявлений x 0.88 (VB/торг)
   price_cache_days: 7
   min_price_samples: 3       # меньше - верить оценке модели
+  # --- Правило ликвидности: быстрый оборот важнее жирной маржи ---
+  # Ходовые ниши (GPU/CPU/ноутбуки/консоли/Apple) уходят за дни -> порог TAKE ниже.
+  # Неликвид/старьё висит месяцами -> порог выше, чтобы не залипнуть.
+  liquidity_enabled: true
+  liquidity_hot_discount: 0.75   # порог TAKE ×0.75 для ходовых ниш
+  liquidity_slow_penalty: 1.3    # порог TAKE ×1.3 для неликвида
 
 # ===== REST API =====
 api:
