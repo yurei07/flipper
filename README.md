@@ -1,37 +1,43 @@
 # flipper
 
-Личный сканер выгодных объявлений. Раз в 15 минут обходит поиски на Kleinanzeigen
-(Фленсбург и окрестности) и Vinted (Германия, с доставкой), новые лоты прогоняет
-через LLM (Gemini 2.5 Flash с фото, фолбэк — локальная Ollama), считает рыночную
-цену по рабочим аналогам и ставит вердикт TAKE / MAYBE / SKIP. Всё складывается
-в SQLite и отдаётся через REST API в веб-приложение (PWA и Android-APK).
-По TAKE приходят уведомления: Telegram, нативный push (FCM) или Web Push.
+A personal deal scanner. Every 15 minutes it walks a set of searches on
+Kleinanzeigen (Flensburg area) and Vinted (Germany, shipped), runs new listings
+through an LLM (Gemini 2.5 Flash with vision, local Ollama as fallback), prices
+them against working analogues, and assigns a verdict of TAKE / MAYBE / SKIP.
+Everything lands in SQLite and is served over a REST API to a web app
+(PWA and Android APK). TAKE listings trigger notifications: Telegram, native
+push (FCM), or Web Push.
 
-Проект написан вместе с ИИ: код и документация создавались в диалоге с LLM,
-потом доводились руками и проверялись на реальном сервере. Это личный инструмент,
-не продукт, и скрейпинг площадок идёт против их правил — подробнее в «Ограничениях».
+The project was built together with AI: code and docs were produced in a
+dialogue with an LLM, then finished by hand and verified on a real server.
+It is a personal tool, not a product, and scraping these marketplaces goes
+against their terms — see "Limitations".
 
-## Как это работает
+## How it works
 
-Цикл (APScheduler, каждые 15 минут):
+One cycle (APScheduler, every 15 minutes):
 
-1. `scraper/search.py` — ротация поисков по обеим площадкам, дедуп, запись
-   новых лотов в `listings`.
-2. `scraper/detail.py` — дозагрузка описаний с детальных страниц, пометка удалённых.
-3. `pipeline.py` — лоты без анализа идут в разбор:
-   - `analyzer/` — LLM определяет тип устройства, дефект, стоимость ремонта.
-     Аксессуары (чехлы, кабели) отсекаются детерминированным фильтром до LLM —
-     сразу SKIP. Если у провайдера включён vision, в запрос уходят фото лота.
-   - `pricing/market.py` — рыночная цена: медиана цен рабочих аналогов на той же
-     площадке. Аналогов мало — берётся оценка модели (помечается `market_estimated`).
-   - `recompute_verdict()` — маржа и вердикт. Правило ликвидности: у ходовых ниш
-     (GPU/CPU/ноутбуки/консоли/Apple) порог TAKE ниже, у неликвида — выше.
-4. `notify/` — рассылка по настроенным каналам (гейт: вердикт в списке, маржа
-   выше порога, лот жив и не скрыт пользователем).
+1. `scraper/search.py` — rotates searches across both marketplaces, dedupes,
+   writes new listings into `listings`.
+2. `scraper/detail.py` — pulls descriptions from detail pages, marks removed
+   listings.
+3. `pipeline.py` — takes unanalysed listings:
+   - `analyzer/` — the LLM determines device type, fault, and repair cost.
+     Accessories (cases, cables) are filtered out deterministically before
+     the LLM — immediate SKIP. If the provider has vision enabled, listing
+     photos are included in the request.
+   - `pricing/market.py` — market price as the median of working analogues on
+     the same marketplace; if there are too few, the model's estimate is used
+     (flagged as `market_estimated`).
+   - `recompute_verdict()` — margin and verdict. Liquidity rule: hot niches
+     (GPU/CPU/laptops/consoles/Apple) get a lower TAKE threshold, illiquid
+     items a higher one.
+4. `notify/` — sends notifications through the configured channels (gate:
+   verdict in list, margin above threshold, listing alive and not hidden).
 
-## Запуск
+## Running
 
-### Docker compose (боевой вариант)
+### Docker compose (production)
 
 ```bash
 cd flipper
@@ -39,10 +45,10 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-`network_mode: host`: скрейпер ходит с домашнего IP, Ollama доступна на
-`localhost:11434`. Бэкенд слушает 8000 напрямую на хосте.
+`network_mode: host`: the scraper goes out from the home IP, Ollama is
+reachable at `localhost:11434`. The backend listens on port 8000 directly.
 
-### Локально (venv, для разработки)
+### Local venv (development)
 
 ```bash
 cd backend
@@ -52,135 +58,135 @@ cp ../.env.example ../.env
 ./.venv/bin/uvicorn flipper.app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Нужно: Python 3.12+, ключ LLM-провайдера (бесплатного тарифа Gemini хватает),
-опционально Ollama с `qwen3:8b` как фолбэк, Node для сборки фронта.
+Requires Python 3.12+, an LLM provider key (Gemini free tier is enough),
+optionally Ollama with `qwen3:8b` as fallback, Node for frontend builds.
 
-## Конфиг
+## Config
 
-Основное — в `backend/config.yaml`:
+Main settings live in `backend/config.yaml`:
 
-- `scraper` — интервал циклов, поиски Kleinanzeigen (query, max_price_eur,
-  radius_km, location, category_ids), бюджеты запросов за цикл и за час,
-  режим работы/отдыха (2.5 ч / 30 мин), стоп-слова.
-- `vinted` — отдельный список поисков и бюджет; поиск по всей Германии,
-  поэтому шум отсекается ценой, стоп-словами и категориями.
-- `analyzer` — провайдер (по умолчанию `gemini`; также `groq`, `openai`,
-  `openrouter`, `cerebras`, `together`, `local`), модель, `vision` (фото),
-  `max_tokens`, `fallback_local` (при лимите облака лот просто ждёт следующего
-  цикла, на локальную модель не падаем).
-- `deal` — пороги маржи TAKE/MAYBE для ремонта и перепродажи, `market_factor`,
-  правило ликвидности.
-- `api`, `db`, `notify` — ключ API, путь к БД, каналы уведомлений.
+- `scraper` — cycle interval, Kleinanzeigen searches (query, max_price_eur,
+  radius_km, location, category_ids), per-cycle and per-hour request budgets,
+  work/rest mode (2.5 h / 30 min), stop words.
+- `vinted` — separate search list and budget; search spans all of Germany,
+  so noise is cut by price, stop words, and categories.
+- `analyzer` — provider (`gemini` by default; also `groq`, `openai`,
+  `openrouter`, `cerebras`, `together`, `local`), model, `vision` (photos),
+  `max_tokens`, `fallback_local` (on cloud rate limits the listing just waits
+  for the next cycle — no fallback to the local model).
+- `deal` — TAKE/MAYBE margin thresholds for repair and resale, `market_factor`,
+  liquidity rule.
+- `api`, `db`, `notify` — API key, DB path, notification channels.
 
-Секреты — в `.env` (`FLIPPER_API_KEY`, `GEMINI_API_KEY`,
-`FLIPPER_TELEGRAM_BOT_TOKEN` и т.д.), в git они не попадают. Путь к БД
-в `config.yaml` абсолютный и машинозависимый: в Docker это
-`sqlite:////app/flipper.db`, на своей машине правь под себя.
+Secrets go in `.env` (`FLIPPER_API_KEY`, `GEMINI_API_KEY`,
+`FLIPPER_TELEGRAM_BOT_TOKEN`, etc.) and never reach git. The DB path in
+`config.yaml` is absolute and machine-specific: in Docker it is
+`sqlite:////app/flipper.db`; adjust it for your machine.
 
-Поиски, стоп-слова и переключатель Vinted правятся без перезапуска — со страницы
-настроек в приложении или через API (`/api/v1/searches`, `/api/v1/settings`).
+Searches, stop words, and the Vinted toggle are editable without a restart —
+from the app settings page or via the API (`/api/v1/searches`,
+`/api/v1/settings`).
 
 ## CLI
 
-Запускать из папки `backend`:
+Run from the `backend` directory:
 
 ```bash
-./.venv/bin/flipper status            # счётчики, разбивка вердиктов
-./.venv/bin/flipper recent -n 20      # последние лоты
-./.venv/bin/flipper cycles -n 10      # история циклов
-./.venv/bin/flipper run --once        # ручной проход (уважает lock и cooldown)
-./.venv/bin/flipper analyze <ad_id>   # разобрать конкретный лот
-./.venv/bin/flipper reanalyze -n 10   # пере-разбор старых SKIP
-./.venv/bin/flipper uncooldown        # сбросить cooldown
-./.venv/bin/flipper test-notify       # проверить Telegram
-./.venv/bin/flipper test-heartbeat    # принудительная пульс-сводка
+./.venv/bin/flipper status            # counters, verdict breakdown
+./.venv/bin/flipper recent -n 20      # latest listings
+./.venv/bin/flipper cycles -n 10      # cycle history
+./.venv/bin/flipper run --once        # manual pass (respects lock and cooldown)
+./.venv/bin/flipper analyze <ad_id>   # analyse a specific listing
+./.venv/bin/flipper reanalyze -n 10   # re-analyse old SKIPs
+./.venv/bin/flipper uncooldown        # reset cooldown
+./.venv/bin/flipper test-notify       # test Telegram
+./.venv/bin/flipper test-heartbeat    # force a heartbeat summary
 ```
 
 ## REST API
 
-Авторизация: `Authorization: Bearer <FLIPPER_API_KEY>`.
+Auth: `Authorization: Bearer <FLIPPER_API_KEY>`.
 
-| Метод | Путь | Назначение |
+| Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/v1/health` | жив ли сервис (без ключа) |
-| GET | `/api/v1/listings` | лента (фильтры verdict, min_margin, saved, created_after_hours) |
-| GET | `/api/v1/listings/{ad_id}` | лот + анализ + сделка |
-| POST | `/api/v1/listings/{ad_id}/saved` / `ignored` / `dismissed` | отметки |
-| POST | `/api/v1/analyze/{ad_id}` | переанализ лота |
-| GET/POST | `/api/v1/flips`, `/api/v1/flips/summary` | портфель: сделки и сводка |
-| PUT/DELETE | `/api/v1/flips/{flip_id}` | правка/удаление сделки |
-| GET/POST | `/api/v1/searches`, PUT/DELETE `/api/v1/searches/{id}` | поиски в БД |
-| GET/PUT | `/api/v1/settings` | настройки (стоп-слова, vinted) |
-| POST | `/api/v1/notifications/register`, `/test` | FCM-токен, тестовый push |
+| GET | `/api/v1/health` | service alive (no key needed) |
+| GET | `/api/v1/listings` | feed (filters: verdict, min_margin, saved, created_after_hours) |
+| GET | `/api/v1/listings/{ad_id}` | listing + analysis + flip |
+| POST | `/api/v1/listings/{ad_id}/saved` / `ignored` / `dismissed` | user actions |
+| POST | `/api/v1/analyze/{ad_id}` | re-analyse a listing |
+| GET/POST | `/api/v1/flips`, `/api/v1/flips/summary` | portfolio: deals and summary |
+| PUT/DELETE | `/api/v1/flips/{flip_id}` | edit/delete a deal |
+| GET/POST | `/api/v1/searches`, PUT/DELETE `/api/v1/searches/{id}` | searches in DB |
+| GET/PUT | `/api/v1/settings` | settings (stop words, vinted) |
+| POST | `/api/v1/notifications/register`, `/test` | FCM token, test push |
 | GET/POST/DELETE | `/api/v1/push/*` | Web Push (VAPID) |
-| GET | `/api/v1/stats`, `/api/v1/export.csv` | статистика, выгрузка |
+| GET | `/api/v1/stats`, `/api/v1/export.csv` | stats, export |
 
-Фронт раздаётся тем же сервером по `/`.
+The frontend is served by the same server at `/`.
 
-## Уведомления
+## Notifications
 
-- Telegram — бот на long-polling. Команды: `/recent`, `/deal <id>`, `/status`,
-  `/stats`, `/pulse`, `/help`. Раз в `notify.heartbeat_interval_min` минут шлёт
-  сводку. Если у уведомлённого лота цена упала на `notify.price_drop_pct`%,
-  приходит повторный алерт.
-- Web Push (PWA) — работает только по HTTPS (cloudflared-туннель или
-  `tailscale serve`).
-- FCM (Android-APK) — нужен service-account Firebase: ключ из Firebase Console
-  кладётся в `flipper-firebase-adminsdk.json` (в .gitignore), путь — в `.env`
-  как `FLIPPER_FCM_SERVICE_ACCOUNT`.
+- Telegram — long-polling bot. Commands: `/recent`, `/deal <id>`, `/status`,
+  `/stats`, `/pulse`, `/help`. Sends a summary every
+  `notify.heartbeat_interval_min` minutes. If a notified listing's price drops
+  by `notify.price_drop_pct`%, a follow-up alert is sent.
+- Web Push (PWA) — HTTPS only (cloudflared tunnel or `tailscale serve`).
+- FCM (Android APK) — requires a Firebase service account: the key from the
+  Firebase Console goes to `flipper-firebase-adminsdk.json` (gitignored),
+  the path to `.env` as `FLIPPER_FCM_SERVICE_ACCOUNT`.
 
-## Android-приложение
+## Android app
 
-`frontend/` — React (Vite) PWA, он же исходник APK на Capacitor 8. Сборка:
+`frontend/` — a React (Vite) PWA and the source of the Capacitor 8 APK. Build:
 
 ```bash
 cd frontend
-export JAVA_HOME=$HOME/.local/share/mise/installs/java/21   # Capacitor 8 требует JDK 21
+export JAVA_HOME=$HOME/.local/share/mise/installs/java/21   # Capacitor 8 needs JDK 21
 export ANDROID_HOME=$HOME/Android
 npm run apk     # build -> cap sync -> assembleDebug -> dist/flipper.apk
 ```
 
-Готовый APK сервер раздаёт по `/flipper.apk`. Пуш в приложении нативный (FCM):
-при старте оно шлёт токен на `POST /api/v1/notifications/register`.
+The server serves the APK at `/flipper.apk`. Push in the app is native (FCM):
+on startup it sends its token to `POST /api/v1/notifications/register`.
 
-## Анти-бан
+## Anti-ban
 
-- Бюджет запросов за цикл и скользящий лимит за час (общий для CLI и сервиса).
-- Ротация ниш: за цикл берётся часть поисков, порядок перемешивается.
-- Режим работы/отдыха 2.5 ч / 30 мин — аккаунт «остывает».
-- Cooldown на час при блоке (`flipper uncooldown` — снять вручную).
-- Стабильный install-id, single-instance lock, паузы между запросами.
+- Per-cycle request budget and a sliding hourly limit (shared by CLI and service).
+- Niche rotation: a subset of searches per cycle, shuffled order.
+- Work/rest mode 2.5 h / 30 min — the account cools down.
+- One-hour cooldown on block (`flipper uncooldown` to reset manually).
+- Stable install-id, single-instance lock, pauses between requests.
 
-## Диагностика
+## Troubleshooting
 
-| Симптом | Причина / решение |
+| Symptom | Cause / fix |
 |---|---|
-| `status` показывает 0, а в БД данные есть | запуск не из `backend/`, путь к БД абсолютный |
-| в логе «включаю cooldown» | сработал анти-бан, переждать или `uncooldown` |
-| `LLM 429 (лимит), ждём Ns` | бесплатный тариф провайдера; лоты перейдут на следующий цикл, можно снизить `analyze_per_cycle` |
-| `рыночный поиск упал` | временный сбой API, вердикт считается по оценке модели |
-| пусто в `recent` | цикл ещё не прошёл: подождать или `run --once` |
+| `status` shows 0 but DB has data | not run from `backend/`, DB path is absolute |
+| logs say "включаю cooldown" (cooldown on) | anti-ban triggered; wait or run `uncooldown` |
+| `LLM 429 (лимит), ждём Ns` (rate limit) | provider free tier; listings wait for the next cycle, consider lowering `analyze_per_cycle` |
+| "рыночный поиск упал" (market search failed) | temporary API failure, verdict falls back to the model estimate |
+| empty `recent` | cycle hasn't run yet; wait or `run --once` |
 
-Тесты:
+Tests:
 
 ```bash
 cd backend && ./.venv/bin/pytest -q
 ```
 
-## Структура
+## Structure
 
 ```
 flipper/
 ├── backend/
 │   ├── flipper/
 │   │   ├── app/
-│   │   │   ├── analyzer/     # LLM: провайдеры, промпт, парсинг в схему
-│   │   │   ├── api/routes.py # REST API + раздача фронта
+│   │   │   ├── analyzer/     # LLM: providers, prompt, schema parsing
+│   │   │   ├── api/routes.py # REST API + static frontend
 │   │   │   ├── notify/       # telegram, fcm, web push, heartbeat, price-drop
-│   │   │   ├── pricing/      # рыночная цена по аналогам
-│   │   │   ├── scraper/      # Kleinanzeigen и Vinted
-│   │   │   ├── pipeline.py   # маржа, вердикт, ликвидность
-│   │   │   ├── scheduler.py  # расписание, lock, cooldown
+│   │   │   ├── pricing/      # market price from analogues
+│   │   │   ├── scraper/      # Kleinanzeigen and Vinted
+│   │   │   ├── pipeline.py   # margin, verdict, liquidity
+│   │   │   ├── scheduler.py  # schedule, lock, cooldown
 │   │   │   └── models.py, db.py
 │   │   ├── cli.py
 │   │   └── config.py
@@ -192,12 +198,12 @@ flipper/
 └── .env.example
 ```
 
-## Ограничения
+## Limitations
 
-- Скрейпинг Kleinanzeigen и Vinted против их правил использования. Проект
-  личный, ответственность за использование — на владельце; лимиты и анти-бан
-  выше настроены, чтобы не мешать площадкам сверх разумного.
-- Код и тексты писались с помощью ИИ: структура и комментарии местами
-  избыточны, но всё это протестировано и работает на реальном сервере.
-- Для распространения проект не предназначен: зашиты личные ниши, город
-  и настройки.
+- Scraping Kleinanzeigen and Vinted violates their terms of use. The project
+  is personal; the owner is responsible for how it is used. The budgets and
+  anti-ban measures above are tuned to stay reasonable.
+- Code and text were written with the help of AI: structure and comments are
+  occasionally redundant, but everything is tested and runs on a real server.
+- The project is not meant for distribution: personal niches, city, and
+  settings are baked in.
